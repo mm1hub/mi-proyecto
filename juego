@@ -1,0 +1,132 @@
+import wx
+import math
+import random
+
+class Personaje:
+    def __init__(self, x, y, vida):
+        self.posicion_x = x
+        self.posicion_y = y
+        self.vida = vida
+        self.radio = 15  # circulo
+        self.muerto = False  # bandera para saber si esta muerto
+
+    def mover(self, dx, dy):
+        if not self.muerto:  # no se mueve si esta muerto   
+            self.posicion_x += dx
+            self.posicion_y += dy
+
+    def chequear_colision(self, otro_personaje):
+        # calculo de distancia entre personajes
+        distancia = math.sqrt((self.posicion_x - otro_personaje.posicion_x) ** 2 +
+                              (self.posicion_y - otro_personaje.posicion_y) ** 2)
+        # si la distancia es menor que la suma de los radios = colision
+        return distancia < (self.radio + otro_personaje.radio)
+
+    def morir(self):
+        self.muerto = True
+
+    def cambiar_color(self):
+        # cambiar color a gris
+        if self.muerto:
+            return wx.Brush('grey')
+        else:
+            return wx.Brush('green')
+
+
+class Recompensa:
+    def __init__(self, x, y, vida_extra):
+        self.posicion_x = x
+        self.posicion_y = y
+        self.radio = 5  # tamaño de la bolita de recompensa
+        self.vida_extra = vida_extra
+
+    def chequear_colision(self, personaje):
+        # detectar colision con el personaje
+        distancia = math.sqrt((self.posicion_x - personaje.posicion_x) ** 2 +
+                              (self.posicion_y - personaje.posicion_y) ** 2)
+        return distancia < (self.radio + personaje.radio)
+
+    def dibujar(self, dc):
+        dc.SetBrush(wx.Brush('black')) # bolita recompensa
+        dc.DrawCircle(self.posicion_x, self.posicion_y, self.radio)
+
+    def mover_a_posicion_aleatoria(self, max_x, max_y):
+        # para queno salga de los limites
+        self.posicion_x = random.randint(50, max_x - 50) 
+        self.posicion_y = random.randint(50, max_y - 50)  
+
+
+class VistaSimple:
+    def __init__(self):
+        self.app = wx.App()
+        self.ventana = wx.Frame(None, title="Juego", size=(500, 400))
+        self.panel = wx.Panel(self.ventana)
+        self.panel.Bind(wx.EVT_KEY_DOWN, self.on_key_down)
+        self.panel.Bind(wx.EVT_PAINT, self.on_paint)
+        self.panel.SetFocus()
+
+        self.personaje = Personaje(250, 200, 100)
+        self.monstruo = Personaje(10, 200, 100)  # Monstruo simple
+        self.recompensa = Recompensa(400, 200, 20)  # recompensa xy(400, 200)
+
+        self.instrucciones = wx.StaticText(self.panel, pos=(10, 10), label="A = izq D = der W = arr S = abajo ESC = salir")
+        self.instrucciones.SetForegroundColour('blue')
+        self.ventana.Centre()
+        self.ventana.Show()
+
+    def on_paint(self, event):
+        dc = wx.PaintDC(self.panel)
+        dc.SetBackground(wx.Brush('white'))
+        dc.Clear()
+
+        # cambiar color si muere
+        dc.SetBrush(self.personaje.cambiar_color())
+        dc.DrawCircle(self.personaje.posicion_x, self.personaje.posicion_y, self.personaje.radio)
+
+        # dibujar monstruo
+        dc.SetBrush(wx.Brush('red'))
+        dc.DrawCircle(self.monstruo.posicion_x, self.monstruo.posicion_y, self.monstruo.radio)
+
+        # Dibujar recompensa
+        self.recompensa.dibujar(dc)
+
+    def on_key_down(self, event):
+        if self.personaje.muerto:
+            return  # no hacer nada si murió
+
+        keycode = event.GetKeyCode()
+        if keycode == ord('W') or keycode == ord('w'):
+            self.personaje.mover(0, -5)  # Mover hacia arriba
+        elif keycode == ord('S') or keycode == ord('s'):
+            self.personaje.mover(0, 5)  # Mover hacia abajo
+        elif keycode == ord('A') or keycode == ord('a'):
+            self.personaje.mover(-5, 0)  # Mover hacia izquierda
+        elif keycode == ord('D') or keycode == ord('d'):
+            self.personaje.mover(5, 0)  # Mover hacia derecha
+        elif keycode == wx.WXK_ESCAPE:
+            self.ventana.Close()
+
+        # verificar colision con mounstro
+        if self.personaje.chequear_colision(self.monstruo):
+            self.personaje.vida -= 10  # restar vida
+            print(f"colision con mounstro / hp: {self.personaje.vida}")
+            if self.personaje.vida <= 0:  # si la vida llega a 0 muere
+                self.personaje.morir()  # MUERTEEE
+                print("game over")
+
+        # colision recompensa
+        if self.recompensa.chequear_colision(self.personaje):
+            self.personaje.vida += self.recompensa.vida_extra  # Sumar vida
+            print(f"Vida extra! hp: {self.personaje.vida}")
+            # mover la recompensa a ubicacion random
+            self.recompensa.mover_a_posicion_aleatoria(self.ventana.GetSize()[0], self.ventana.GetSize()[1])
+
+        self.panel.Refresh()
+        event.Skip()
+
+    def iniciar(self):
+        self.app.MainLoop()
+
+if __name__ == "__main__":
+    juego = VistaSimple()
+    juego.iniciar()
