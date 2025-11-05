@@ -1,0 +1,186 @@
+# main.py
+
+import pygame
+import random
+
+# iniciar
+pygame.init()
+
+# Dimensiones de la pantalla
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Simulador de Ecosistema")
+
+# Colores
+AZUL = (0, 0, 255)     # Peces
+VERDE = (0, 255, 0)    # Algas
+GRIS = (169, 169, 169) # Tiburones
+
+# Configuración de FPS (Frames por segundo)
+FPS = 30
+clock = pygame.time.Clock()
+
+
+# ---------------------------------
+# CLASES DE ESPECIES
+# ---------------------------------
+
+class Especie:
+    def __init__(self, nombre, tipo, energia, tiempo_vida):
+        self.nombre = nombre  # Pejerrey, Trucha, Tiburón
+        self.tipo = tipo  # herbívoro, carnívoro
+        self.energia = energia  # Energía
+        self.tiempo_vida = tiempo_vida  # Tiempo de vida en rondas
+        self.edad = 0  # Edad inicial
+    
+    def mover(self):
+        """Método básico para mover la especie en el entorno"""
+        pass
+    
+    def comer(self):
+        """Método para buscar y comer alimento"""
+        pass
+    
+    def reproducir(self):
+        """Método para la reproducción"""
+        pass
+    
+    def morir(self):
+        """Condición de muerte por edad o falta de comida"""
+        if self.edad >= self.tiempo_vida:
+            return True
+        return False
+
+
+class Pez(Especie):
+    def __init__(self, nombre, energia, tiempo_vida):
+        super().__init__(nombre, 'herbívoro', energia, tiempo_vida)
+
+    def comer(self, plantas):
+        """Comer algas"""
+        if plantas:
+            self.energia += 10  # Aumentar energía al comer algas
+
+
+class Trucha(Especie):
+    def __init__(self, nombre, energia, tiempo_vida):
+        super().__init__(nombre, 'carnívoro', energia, tiempo_vida)
+
+    def comer(self, peces):
+        """Comer peces"""
+        if peces:
+            self.energia += 20  # Aumentar energía al comer pejerrey
+
+
+class Tiburon(Especie):
+    def __init__(self, nombre, energia, tiempo_vida):
+        super().__init__(nombre, 'carnívoro', energia, tiempo_vida)
+
+    def comer(self, truchas):
+        """Comer trucha"""
+        if truchas:
+            self.energia += 30  # Aumentar energía al comer trucha
+
+
+# ---------------------------------
+# CLASE DE PLANTA (ALGA)
+# ---------------------------------
+
+class Planta:
+    def __init__(self, nombre, energia):
+        self.nombre = nombre  # Alga
+        self.energia = energia  # Energía que proporciona al ser comida
+
+
+# ---------------------------------
+# CLASE ECOSISTEMA
+# ---------------------------------
+
+class Ecosistema:
+    def __init__(self):
+        self.peces = []  # Lista de peces
+        self.truchas = []  # Lista de truchas
+        self.tiburones = []  # Lista de tiburones
+        self.plantas = []  # Lista de plantas (algas)
+    
+    def añadir_especie(self, especie):
+        """Añadir una especie al ecosistema"""
+        if isinstance(especie, Pez):
+            self.peces.append(especie)
+        elif isinstance(especie, Trucha):
+            self.truchas.append(especie)
+        elif isinstance(especie, Tiburon):
+            self.tiburones.append(especie)
+        elif isinstance(especie, Planta):
+            self.plantas.append(especie)
+    
+    def simular_turno(self):
+        """Simula un turno del ecosistema"""
+        # Lógica de movimiento y alimentación
+        for pez in self.peces:
+            pez.mover()
+            if self.plantas:
+                pez.comer(self.plantas[0])  # Comer la primera planta
+        
+        for trucha in self.truchas:
+            trucha.mover()
+            if self.peces:
+                trucha.comer(self.peces[0])  # Comer el primer pez
+        
+        for tiburon in self.tiburones:
+            tiburon.mover()
+            if self.truchas:
+                tiburon.comer(self.truchas[0])  # Comer la primera trucha
+
+
+# ---------------------------------
+# INICIO DE LA SIMULACIÓN
+# ---------------------------------
+
+# Crear un ecosistema
+ecosistema = Ecosistema()
+
+# Añadir especies
+peje = Pez("Pejerrey", 50, 10)
+trucha = Trucha("Trucha", 60, 12)
+tiburon = Tiburon("Tiburón", 100, 15)
+alga = Planta("Alga", 20)
+
+ecosistema.añadir_especie(peje)
+ecosistema.añadir_especie(trucha)
+ecosistema.añadir_especie(tiburon)
+ecosistema.añadir_especie(alga)
+
+# ---------------------------------
+# Bucle Principal del Juego
+# ---------------------------------
+
+running = True
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+    
+    # Lógica de simulación (puedes ajustar la simulación de turnos)
+    ecosistema.simular_turno()
+
+    # Visualización: Limpiar la pantalla
+    screen.fill((255, 255, 255))  # Fondo blanco
+
+    # Dibujar los peces
+    for pez in ecosistema.peces:
+        pygame.draw.circle(screen, AZUL, (random.randint(50, 750), random.randint(50, 550)), 10)  # Pez en azul
+    
+    # Dibujar las truchas
+    for trucha in ecosistema.truchas:
+        pygame.draw.circle(screen, GRIS, (random.randint(50, 750), random.randint(50, 550)), 15)  # Tiburón en gris
+    
+    # Dibujar las algas
+    for planta in ecosistema.plantas:
+        pygame.draw.circle(screen, VERDE, (random.randint(50, 750), random.randint(50, 550)), 8)  # Alga en verde
+    
+    pygame.display.flip()
+    clock.tick(FPS)
+
+# Cerrar PyGame
+pygame.quit()
