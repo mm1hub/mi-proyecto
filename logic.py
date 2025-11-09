@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 # CONFIGURACIÓN GLOBAL (compartida)
 # (Forzado a estar aquí por la estructura de 3 archivos)
 # ---------------------------------
-WIDTH, HEIGHT = 800, 600
+WIDTH, HEIGHT = 1024, 768
 FPS = 30
 TURNO_DURACION_MS = 500  # Un turno de IA cada 0.5 s (ajusta a gusto)
 
@@ -28,7 +28,13 @@ class Animal(ABC):
         self.energia = energia
         self.tiempo_vida = tiempo_vida
         self.edad = 0
-        self.rect = pygame.Rect(random.randint(0, WIDTH), random.randint(0, HEIGHT), ancho, alto)
+        # Posición inicial dentro de los límites de la ventana
+        self.rect = pygame.Rect(
+            random.randint(0, max(0, WIDTH - ancho)),
+            random.randint(0, max(0, HEIGHT - alto)),
+            ancho,
+            alto,
+        )
 
         # Objetivo de movimiento (hacia dónde quiere ir)
         self.target_x = float(self.rect.x)
@@ -95,7 +101,13 @@ class Planta:
     def __init__(self, nombre, energia):
         self.nombre = nombre
         self.energia = energia
-        self.rect = pygame.Rect(random.randint(0, WIDTH - 8), random.randint(0, HEIGHT - 8), 8, 8)
+        # Aparición garantizada dentro de los límites
+        self.rect = pygame.Rect(
+            random.randint(0, max(0, WIDTH - 8)),
+            random.randint(0, max(0, HEIGHT - 8)),
+            8,
+            8,
+        )
 
 
 class Pez(Animal):
