@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pygame
 import random
 from abc import ABC, abstractmethod
@@ -22,7 +23,7 @@ GRIS = (169, 169, 169)
 
 # --- Clase Base Abstracta (logic/animal.py) ---
 class Animal(ABC):
-    def __init__(self, nombre, energia, tiempo_vida):
+    def __init__(self, nombre, energia, tiempo_vida, ancho=10, alto=10):
         self.nombre = nombre
         self.energia = energia
         self.tiempo_vida = tiempo_vida
@@ -35,6 +36,19 @@ class Animal(ABC):
         self.target_y = self.rect.y
         # Velocidad de movimiento (píxeles por frame)
         self.velocidad_frame = random.uniform(1.0, 3.0)
+        # Ajustes de posición y buffers en float para movimiento fluido
+        # Ajustar tamaño desde parámetros y reencajar en pantalla
+        self.rect.width = ancho
+        self.rect.height = alto
+        if self.rect.right > WIDTH:
+            self.rect.right = WIDTH
+        if self.rect.bottom > HEIGHT:
+            self.rect.bottom = HEIGHT
+        # Posición en float y objetivos sincronizados
+        self.pos_x = float(self.rect.x)
+        self.pos_y = float(self.rect.y)
+        self.target_x = self.pos_x
+        self.target_y = self.pos_y
 
     @abstractmethod
     def decidir_objetivo(self, listas_de_seres):
@@ -74,6 +88,28 @@ class Animal(ABC):
     def ha_muerto(self):
         return self.edad >= self.tiempo_vida or self.energia <= 0
 
+    def update_movimiento_frame(self):
+        """(Movimiento - 60 vez/seg) Se mueve físicamente hacia el objetivo con precisión float"""
+        # Calcular desplazamientos hacia el objetivo por eje, saturando por velocidad_frame
+        if not hasattr(self, 'pos_x'):
+            self.pos_x = float(self.rect.x)
+        if not hasattr(self, 'pos_y'):
+            self.pos_y = float(self.rect.y)
+        dx = self.target_x - self.pos_x
+        dy = self.target_y - self.pos_y
+        if abs(dx) > 0:
+            step_x = max(-self.velocidad_frame, min(self.velocidad_frame, dx))
+            self.pos_x += step_x
+        if abs(dy) > 0:
+            step_y = max(-self.velocidad_frame, min(self.velocidad_frame, dy))
+            self.pos_y += step_y
+        # Limitar a pantalla
+        max_x = max(0, WIDTH - self.rect.width)
+        max_y = max(0, HEIGHT - self.rect.height)
+        self.pos_x = max(0.0, min(self.pos_x, float(max_x)))
+        self.pos_y = max(0.0, min(self.pos_y, float(max_y)))
+        self.rect.topleft = (int(self.pos_x), int(self.pos_y))
+
 # --- Clase Planta (logic/planta.py) ---
 class Planta:
     def __init__(self, nombre, energia):
@@ -84,9 +120,8 @@ class Planta:
 # --- Clase Herbívoro (logic/herbivoro.py) ---
 class Pez(Animal):
     def __init__(self, nombre, energia, tiempo_vida):
-        super().__init__(nombre, energia, tiempo_vida)
-        self.rect.width = 10
-        self.rect.height = 10
+        super().__init__(nombre, energia, tiempo_vida, ancho=10, alto=10)
+        
         self.velocidad_frame = random.uniform(2.0, 4.0) # Los peces son rápidos
 
     def comer(self, planta):
@@ -158,8 +193,8 @@ class Pez(Animal):
 # --- CLASE SIMPLIFICADA (NUEVA) ---
 class Carnivoro(Animal):
     """Clase base para Trucha y Tiburon para no repetir código"""
-    def __init__(self, nombre, energia, tiempo_vida, presa_key, hambre_threshold):
-        super().__init__(nombre, energia, tiempo_vida)
+    def __init__(self, nombre, energia, tiempo_vida, presa_key, hambre_threshold, ancho=12, alto=12):
+        super().__init__(nombre, energia, tiempo_vida, ancho=ancho, alto=alto)
         self.presa_key = presa_key # Ej: "peces" o "truchas"
         self.hambre_threshold = hambre_threshold # Ej: 80 o 150
 
@@ -195,9 +230,8 @@ class Carnivoro(Animal):
 class Trucha(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
         # Llama a Carnivoro, le dice qué cazar ("peces") y cuándo (80)
-        super().__init__(nombre, energia, tiempo_vida, presa_key="peces", hambre_threshold=80)
-        self.rect.width = 15
-        self.rect.height = 15
+        super().__init__(nombre, energia, tiempo_vida, presa_key="peces", hambre_threshold=80, ancho=15, alto=15)
+        
         self.velocidad_frame = random.uniform(1.5, 3.5)
 
     def comer(self, pez):
@@ -217,9 +251,8 @@ class Trucha(Carnivoro):
 class Tiburon(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
         # Llama a Carnivoro, le dice qué cazar ("truchas") y cuándo (150)
-        super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150)
-        self.rect.width = 20
-        self.rect.height = 20
+        super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=20, alto=20)
+        
         self.velocidad_frame = random.uniform(1.0, 3.0) # Más lento
 
     def comer(self, trucha):
@@ -245,6 +278,19 @@ class Ecosistema:
         self.plantas = []
     
     def añadir_poblacion_inicial(self):
+        for _ in range(25): self.plantas.append(Planta("Alga", 20))
+        for _ in range(15): self.peces.append(Pez("Pejerrey", 50, 20))
+        for _ in range(5): self.truchas.append(Trucha("Trucha", 100, 25))
+        for _ in range(2): self.tiburones.append(Tiburon("Tiburón", 200, 30))
+
+    # Alias ASCII para evitar problemas por mojibake en algunas codificaciones
+    def anadir_poblacion_inicial(self):
+        try:
+            metodo = getattr(self, 'a��adir_poblacion_inicial')
+        except AttributeError:
+            metodo = None
+        if metodo:
+            return metodo()
         for _ in range(25): self.plantas.append(Planta("Alga", 20))
         for _ in range(15): self.peces.append(Pez("Pejerrey", 50, 20))
         for _ in range(5): self.truchas.append(Trucha("Trucha", 100, 25))
