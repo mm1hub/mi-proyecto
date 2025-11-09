@@ -34,10 +34,9 @@ Controles de la UI
 - Botón `Detener`: reinicia poblaciones y deja la simulación detenida.
 
 
-Configuraci�n previa
+Configuración previa
 - Antes de iniciar, puedes ajustar las cantidades de Algas, Peces, Truchas y Tiburones con los botones - y + en la barra superior.
 - Si no cambias nada, se usan los valores predeterminados.
 
 Assets
-- Coloca las im�genes en la carpeta assets/ junto al c�digo.
-- Nombres admitidos: pez (pez.png/pez.gif/fish.png), trucha (trucha.png/trucha.gif), tibur�n (tiburon.png/tiburon.gif/shark.png), alga (alga.png/alga.gif/algagif.gif).
+- Coloca las imagenes en la carpeta assets/ junto al codigo.
