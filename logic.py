@@ -3,13 +3,13 @@ import random
 from abc import ABC, abstractmethod
 
 # ---------------------------------
-# CONFIGURACIÃ“N GLOBAL (compartida)
+# CONFIGURACIÓN GLOBAL (compartida)
 # ---------------------------------
 WIDTH, HEIGHT = 1024, 768
 FPS = 30
-TURNO_DURACION_MS = 1000  # Un turno de IA cada 1 s para ciclos mÃ¡s largos
+TURNO_DURACION_MS = 1000  # Un turno de IA cada 1 s para ciclos más largos
 
-# Colores (usados por la Vista, pero importados desde aquÃ­)
+# Colores (usados por la Vista, pero importados desde aquí)
 BLANCO = (255, 255, 255)
 AZUL = (0, 0, 255)
 VERDE = (0, 255, 0)
@@ -17,7 +17,6 @@ MARRON = (139, 69, 19)
 GRIS = (169, 169, 169)
 
 # Configuración de texturas: edita aquí los nombres de archivo y tamaños
-# Puedes usar un string (un único nombre) o una lista de nombres alternativos por entidad.
 TEXTURAS = {
     'pez': ['pez.png', 'pez.gif', 'fish.png'],
     'trucha': ['trucha.png', 'trucha.gif'],
@@ -45,10 +44,14 @@ COLOR_STOP = (220, 53, 69)
 COLOR_PAUSE = (255, 193, 7)
 COLOR_RESUME = (23, 162, 184)
 
+# --- (IDEA 3) Colores para Partículas de Eventos ---
+COLOR_COMER = (144, 238, 144) # Verde claro
+COLOR_NACER = (255, 182, 193) # Rosa claro
+COLOR_MORIR = (160, 160, 160) # Gris
+
 
 # ---------------------------------
-# CAPA DE LÃ“GICA (MODELO)
-# (El resto de este archivo es EXACTAMENTE el que tÃº enviaste)
+# CAPA DE LÓGICA (MODELO)
 # ---------------------------------
 
 class Animal(ABC):
@@ -68,6 +71,10 @@ class Animal(ABC):
         self.velocidad_frame = random.uniform(1.0, 3.0)
         self.pos_x = float(self.rect.x)
         self.pos_y = float(self.rect.y)
+        
+        # --- (IDEA 2) Añadir rastreador de dirección ---
+        self.direccion_h = 1 # 1 = derecha, -1 = izquierda
+        
         if self.rect.right > WIDTH: self.rect.right = WIDTH
         if self.rect.bottom > HEIGHT: self.rect.bottom = HEIGHT
         self.pos_x, self.pos_y = float(self.rect.x), float(self.rect.y)
@@ -91,12 +98,17 @@ class Animal(ABC):
     def update_movimiento_frame(self):
         dx = self.target_x - self.pos_x
         dy = self.target_y - self.pos_y
-        if abs(dx) > 0:
+        
+        # --- (IDEA 2) Actualizar dirección basado en el movimiento ---
+        if abs(dx) > 0.1: # Usar un umbral pequeño para evitar "jitter"
             step_x = max(-self.velocidad_frame, min(self.velocidad_frame, dx))
             self.pos_x += step_x
+            self.direccion_h = 1 if step_x > 0 else -1 # Actualiza dirección
+        
         if abs(dy) > 0:
             step_y = max(-self.velocidad_frame, min(self.velocidad_frame, dy))
             self.pos_y += step_y
+            
         max_x = max(0, WIDTH - self.rect.width)
         max_y = max(0, HEIGHT - self.rect.height)
         self.pos_x = max(0.0, min(self.pos_x, float(max_x)))
@@ -125,6 +137,8 @@ class Pez(Animal):
     def comer(self, planta):
         if isinstance(planta, Planta):
             self.energia += planta.energia
+            return planta.energia # --- (IDEA 3) Devuelve cuánta energía ganó
+        return 0
 
     def reproducir(self):
         if self.energia > 100 and self.edad > 5 and random.random() < 0.1:
@@ -209,7 +223,10 @@ class Trucha(Carnivoro):
 
     def comer(self, pez):
         if isinstance(pez, Pez):
-            self.energia += pez.energia // 2
+            energia_ganada = pez.energia // 2
+            self.energia += energia_ganada
+            return energia_ganada # --- (IDEA 3)
+        return 0
 
     def reproducir(self):
         if self.energia > 150 and self.edad > 8 and random.random() < 0.05:
@@ -226,12 +243,15 @@ class Tiburon(Carnivoro):
 
     def comer(self, trucha):
         if isinstance(trucha, Trucha):
-            self.energia += trucha.energia // 2
+            energia_ganada = trucha.energia // 2
+            self.energia += energia_ganada
+            return energia_ganada # --- (IDEA 3)
+        return 0
 
     def reproducir(self):
         if self.energia > 200 and self.edad > 10 and random.random() < 0.03:
             self.energia -= 100
-            cria = Tiburon("TiburÃ³n", 200, 30)
+            cria = Tiburon("Tiburón", 200, 30)
             cria.rect.topleft = self.rect.topleft
             return cria
         return None
@@ -242,6 +262,8 @@ class Ecosistema:
         self.truchas = []
         self.tiburones = []
         self.plantas = []
+        # --- (IDEA 3) Lista para que la Vista lea los eventos ---
+        self.eventos_visuales = []
 
     def poblar_inicial(self):
         self.poblar_custom()
@@ -251,7 +273,11 @@ class Ecosistema:
         self.peces = [Pez("Pejerrey", 70, 120) for _ in range(n_peces)]
         self.truchas = [Trucha("Trucha", 120, 180) for _ in range(n_truchas)]
         self.tiburones = [Tiburon("Tiburon", 200, 30) for _ in range(n_tiburones)]
+        
     def simular_turno_ia(self):
+        # --- (IDEA 3) Limpiar eventos del turno anterior ---
+        self.eventos_visuales.clear()
+        
         peces_muertos, truchas_muertas, tiburones_muertos = [], [], []
         plantas_comidas = []
         nuevas_crias_peces, nuevas_crias_truchas, nuevas_crias_tiburones = [], [], []
@@ -263,47 +289,76 @@ class Ecosistema:
             "plantas": self.plantas
         }
 
+        # Peces
         for pez in self.peces:
             pez.update_decision_turno(listas_de_seres)
             for planta in self.plantas:
                 if pez.rect.colliderect(planta.rect) and planta not in plantas_comidas:
-                    pez.comer(planta)
+                    energia_ganada = pez.comer(planta)
+                    # --- (IDEA 3) Registrar evento de comer ---
+                    if energia_ganada > 0:
+                        self.eventos_visuales.append(('comer', pez.rect.center, energia_ganada))
                     plantas_comidas.append(planta)
                     break
             cria = pez.reproducir()
             if cria:
                 nuevas_crias_peces.append(cria)
+                # --- (IDEA 3) Registrar evento de nacer ---
+                self.eventos_visuales.append(('nacer', cria.rect.center))
             if pez.ha_muerto():
                 peces_muertos.append(pez)
+                # --- (IDEA 3) Registrar evento de morir ---
+                self.eventos_visuales.append(('morir', pez.rect.center))
 
+        # Truchas
         for trucha in self.truchas:
             trucha.update_decision_turno(listas_de_seres)
             for pez in self.peces:
                 if pez not in peces_muertos and trucha.rect.colliderect(pez.rect):
-                    trucha.comer(pez)
+                    energia_ganada = trucha.comer(pez)
+                    # --- (IDEA 3) Registrar evento de comer ---
+                    if energia_ganada > 0:
+                        self.eventos_visuales.append(('comer', trucha.rect.center, energia_ganada))
                     if pez not in peces_muertos:
                         peces_muertos.append(pez)
+                        # --- (IDEA 3) Registrar evento de morir (para el pez) ---
+                        self.eventos_visuales.append(('morir', pez.rect.center))
                     break
             cria = trucha.reproducir()
             if cria:
                 nuevas_crias_truchas.append(cria)
+                # --- (IDEA 3) Registrar evento de nacer ---
+                self.eventos_visuales.append(('nacer', cria.rect.center))
             if trucha.ha_muerto():
                 truchas_muertas.append(trucha)
+                # --- (IDEA 3) Registrar evento de morir ---
+                self.eventos_visuales.append(('morir', trucha.rect.center))
 
+        # Tiburones
         for tiburon in self.tiburones:
             tiburon.update_decision_turno(listas_de_seres)
             for trucha in self.truchas:
                 if trucha not in truchas_muertas and tiburon.rect.colliderect(trucha.rect):
-                    tiburon.comer(trucha)
+                    energia_ganada = tiburon.comer(trucha)
+                    # --- (IDEA 3) Registrar evento de comer ---
+                    if energia_ganada > 0:
+                        self.eventos_visuales.append(('comer', tiburon.rect.center, energia_ganada))
                     if trucha not in truchas_muertas:
                         truchas_muertas.append(trucha)
+                        # --- (IDEA 3) Registrar evento de morir (para la trucha) ---
+                        self.eventos_visuales.append(('morir', trucha.rect.center))
                     break
             cria = tiburon.reproducir()
             if cria:
                 nuevas_crias_tiburones.append(cria)
+                # --- (IDEA 3) Registrar evento de nacer ---
+                self.eventos_visuales.append(('nacer', cria.rect.center))
             if tiburon.ha_muerto():
                 tiburones_muertos.append(tiburon)
+                # --- (IDEA 3) Registrar evento de morir ---
+                self.eventos_visuales.append(('morir', tiburon.rect.center))
 
+        # Limpieza
         set_peces_muertos = set(peces_muertos)
         set_truchas_muertas = set(truchas_muertas)
         set_tiburones_muertos = set(tiburones_muertos)
@@ -314,6 +369,7 @@ class Ecosistema:
         self.tiburones = [t for t in self.tiburones if t not in set_tiburones_muertos]
         self.plantas = [p for p in self.plantas if p not in set_plantas_comidas]
 
+        # Adición
         self.peces.extend(nuevas_crias_peces)
         self.truchas.extend(nuevas_crias_truchas)
         self.tiburones.extend(nuevas_crias_tiburones)
@@ -325,7 +381,3 @@ class Ecosistema:
         todos_los_animales = self.peces + self.truchas + self.tiburones
         for animal in todos_los_animales:
             animal.update_movimiento_frame()
-
-
-
-
