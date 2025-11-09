@@ -3,6 +3,7 @@ Simulador de Ecosistema (Pygame)
 
 Descripción
 - Simulación simple con peces, truchas, tiburones y algas.
+- Los peces se alimentan de algas; las truchas se alimentan de peces; y los tiburones se alimentan de truchas.
 - Programación orientada a objetos: cada entidad define su lógica y movimiento.
 - Ventana fija a 1024x768; las entidades no salen de los bordes.
 
@@ -26,3 +27,8 @@ Arquitectura
   - Usa sprites de `assets/` si existen; si no, dibuja formas básicas.
 - `main.py`: Bucle principal
   - Inicializa `Ecosistema` y `Vista`, ejecuta turnos de IA y render.
+  
+Controles de la UI
+- Botón `Iniciar`: comienza la simulación.
+- Botón `Pausar/Reanudar`: pausa o reanuda el avance.
+- Botón `Detener`: reinicia poblaciones y deja la simulación detenida.

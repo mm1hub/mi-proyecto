@@ -15,20 +15,39 @@ def main():
     proximo_turno_ia = pygame.time.get_ticks() + TURNO_DURACION_MS
 
     running = True
+    sim_running = False
+    sim_paused = False
     while running:
         # Eventos
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                accion = vista.hit_button(event.pos)
+                if accion == 'start':
+                    sim_running = True
+                    sim_paused = False
+                    proximo_turno_ia = pygame.time.get_ticks() + TURNO_DURACION_MS
+                elif accion == 'pause' and sim_running:
+                    sim_paused = not sim_paused
+                elif accion == 'stop' and sim_running:
+                    ecosistema = Ecosistema()
+                    ecosistema.poblar_inicial()
+                    sim_running = False
+                    sim_paused = False
+
+        # Pasar estado a la vista
+        vista.set_estado_simulacion(sim_running, sim_paused)
 
         # IA (turnos)
         ahora = pygame.time.get_ticks()
-        if ahora >= proximo_turno_ia:
+        if sim_running and not sim_paused and (ahora >= proximo_turno_ia):
             ecosistema.simular_turno_ia()
             proximo_turno_ia = ahora + TURNO_DURACION_MS
 
         # Movimiento continuo
-        ecosistema.actualizar_movimiento_frame()
+        if sim_running and not sim_paused:
+            ecosistema.actualizar_movimiento_frame()
 
         # Render
         vista.dibujar_ecosistema(ecosistema)

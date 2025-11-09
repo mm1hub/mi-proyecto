@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 # ---------------------------------
 WIDTH, HEIGHT = 1024, 768
 FPS = 30
-TURNO_DURACION_MS = 500  # Un turno de IA cada 0.5 s (ajusta a gusto)
+TURNO_DURACION_MS = 1000  # Un turno de IA cada 1 s para ciclos más largos
 
 # Colores (usados por la Vista, pero importados desde aquí)
 BLANCO = (255, 255, 255)
@@ -70,7 +70,7 @@ class Animal(ABC):
 
     def update_decision_turno(self, listas_de_seres):
         """(IA - 1 vez/turno) Envejece, gasta energía y toma decisiones"""
-        self.energia -= 5
+        self.energia -= 2
         self.edad += 1
         self.decidir_objetivo(listas_de_seres)
 
@@ -260,8 +260,8 @@ class Ecosistema:
     def poblar_inicial(self):
         """Carga la población inicial."""
         self.plantas = [Planta("Alga", 20) for _ in range(25)]
-        self.peces = [Pez("Pejerrey", 50, 20) for _ in range(15)]
-        self.truchas = [Trucha("Trucha", 100, 25) for _ in range(5)]
+        self.peces = [Pez("Pejerrey", 70, 120) for _ in range(15)]
+        self.truchas = [Trucha("Trucha", 120, 180) for _ in range(5)]
         self.tiburones = [Tiburon("Tiburón", 200, 30) for _ in range(2)]
 
     def simular_turno_ia(self):
