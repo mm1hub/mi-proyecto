@@ -5,12 +5,13 @@ from abc import ABC, abstractmethod
 
 # ---------------------------------
 # CONFIGURACIÓN GLOBAL (compartida)
+# (Forzado a estar aquí por la estructura de 3 archivos)
 # ---------------------------------
 WIDTH, HEIGHT = 800, 600
 FPS = 30
 TURNO_DURACION_MS = 500  # Un turno de IA cada 0.5 s (ajusta a gusto)
 
-# Colores (también usados por la Vista)
+# Colores (usados por la Vista, pero importados desde aquí)
 BLANCO = (255, 255, 255)
 AZUL = (0, 0, 255)
 VERDE = (0, 255, 0)
@@ -41,10 +42,8 @@ class Animal(ABC):
         self.pos_y = float(self.rect.y)
 
         # Reencajar en pantalla por si acaso
-        if self.rect.right > WIDTH:
-            self.rect.right = WIDTH
-        if self.rect.bottom > HEIGHT:
-            self.rect.bottom = HEIGHT
+        if self.rect.right > WIDTH: self.rect.right = WIDTH
+        if self.rect.bottom > HEIGHT: self.rect.bottom = HEIGHT
         self.pos_x, self.pos_y = float(self.rect.x), float(self.rect.y)
         self.target_x, self.target_y = self.pos_x, self.pos_y
 
@@ -135,35 +134,29 @@ class Pez(Animal):
                 dist_min_depredador = distancia
                 depredador_cercano = dep
 
-        # 2) Huir
-        if depredador_cercano:
-            if self.rect.centerx < depredador_cercano.rect.centerx:
-                self.target_x = self.rect.x - 70
-            else:
-                self.target_x = self.rect.x + 70
-
-            if self.rect.centery < depredador_cercano.rect.centery:
-                self.target_y = self.rect.y - 70
-            else:
-                self.target_y = self.rect.y + 70
-
-        # 3) Buscar comida si tiene hambre
-        elif self.energia < 70:
+        # 2) Buscar comida si tiene hambre
+        if self.energia < 70:
             for planta in lista_de_plantas:
                 distancia = (self.rect.centerx - planta.rect.centerx) ** 2 + (self.rect.centery - planta.rect.centery) ** 2
                 if distancia < dist_min_planta:
                     dist_min_planta = distancia
                     planta_cercana = planta
+        
+        # --- CAMBIO LÓGICA DE DECISIÓN (para no repetir "Vagar") ---
+        # 1) Huir
+        if depredador_cercano:
+            if self.rect.centerx < depredador_cercano.rect.centerx: self.target_x = self.rect.x - 70
+            else: self.target_x = self.rect.x + 70
 
-            if planta_cercana:
-                self.target_x = float(planta_cercana.rect.centerx)
-                self.target_y = float(planta_cercana.rect.centery)
-            else:
-                if abs(self.rect.x - self.target_x) < 5 and abs(self.rect.y - self.target_y) < 5:
-                    self.target_x = self.rect.x + random.randint(-70, 70)
-                    self.target_y = self.rect.y + random.randint(-70, 70)
+            if self.rect.centery < depredador_cercano.rect.centery: self.target_y = self.rect.y - 70
+            else: self.target_y = self.rect.y + 70
 
-        # 4) Vagar
+        # 2) Comer (si no hay peligro Y tiene hambre Y hay comida)
+        elif self.energia < 70 and planta_cercana:
+            self.target_x = float(planta_cercana.rect.centerx)
+            self.target_y = float(planta_cercana.rect.centery)
+
+        # 3) Vagar (si no pasa nada de lo anterior, o si ya llegó)
         else:
             if abs(self.rect.x - self.target_x) < 5 and abs(self.rect.y - self.target_y) < 5:
                 self.target_x = self.rect.x + random.randint(-70, 70)
@@ -251,22 +244,13 @@ class Ecosistema:
         self.tiburones = []
         self.plantas = []
 
-    def _cargar_poblacion_inicial(self):
-        for _ in range(25):
-            self.plantas.append(Planta("Alga", 20))
-        for _ in range(15):
-            self.peces.append(Pez("Pejerrey", 50, 20))
-        for _ in range(5):
-            self.truchas.append(Trucha("Trucha", 100, 25))
-        for _ in range(2):
-            self.tiburones.append(Tiburon("Tiburón", 200, 30))
-
-    # Compatibles con teclado sin "ñ" y con "ñ"
-    def anadir_poblacion_inicial(self):
-        self._cargar_poblacion_inicial()
-
-    def añadir_poblacion_inicial(self):  # alias con ñ
-        self._cargar_poblacion_inicial()
+    # --- CAMBIO: Un solo método para poblar (más limpio) ---
+    def poblar_inicial(self):
+        """Carga la población inicial."""
+        self.plantas = [Planta("Alga", 20) for _ in range(25)]
+        self.peces = [Pez("Pejerrey", 50, 20) for _ in range(15)]
+        self.truchas = [Trucha("Trucha", 100, 25) for _ in range(5)]
+        self.tiburones = [Tiburon("Tiburón", 200, 30) for _ in range(2)]
 
     def simular_turno_ia(self):
         """(IA - 1 vez/turno) Lógica de decisión, hambre, muerte, reproducción, etc."""
@@ -345,10 +329,14 @@ class Ecosistema:
         if random.random() < 0.8:
             self.plantas.append(Planta("Alga", 20))
 
+    # --- CAMBIO: BUCLE POLIMÓRFICO ---
     def actualizar_movimiento_frame(self):
-        for pez in self.peces:
-            pez.update_movimiento_frame()
-        for trucha in self.truchas:
-            trucha.update_movimiento_frame()
-        for tiburon in self.tiburones:
-            tiburon.update_movimiento_frame()
+        """
+        Ejemplo de POLIMORFISMO:
+        Llama a .update_movimiento_frame() en todos los animales.
+        No importa si es Pez, Trucha o Tiburon, cada objeto
+        sabe cómo ejecutar su propia versión del método.
+        """
+        todos_los_animales = self.peces + self.truchas + self.tiburones
+        for animal in todos_los_animales:
+            animal.update_movimiento_frame()
