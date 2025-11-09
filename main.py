@@ -1,15 +1,14 @@
 # main.py
 import pygame
+# Importa todo (clases y configs) desde logic.py
 from logic import Ecosistema, WIDTH, HEIGHT, FPS, TURNO_DURACION_MS
 from view import Vista
 
 def main():
     ecosistema = Ecosistema()
-    # Soportamos teclado con o sin "ñ"
-    try:
-        ecosistema.anadir_poblacion_inicial()
-    except AttributeError:
-        ecosistema.añadir_poblacion_inicial()
+    
+    # --- CAMBIO: Llamada al método simplificado ---
+    ecosistema.poblar_inicial() # Ya no necesitamos try/except para la "ñ"
 
     vista = Vista(WIDTH, HEIGHT)
     clock = pygame.time.Clock()
