@@ -1,4 +1,6 @@
+# miproyecto001.py
 # -*- coding: utf-8 -*-
+
 import pygame
 import random
 from abc import ABC, abstractmethod
@@ -7,8 +9,8 @@ from abc import ABC, abstractmethod
 # 1. CONFIGURACIÓN GLOBAL
 # ---------------------------------
 WIDTH, HEIGHT = 800, 600
-FPS = 60
-TURNO_DURACION_MS = 1000 # Un turno de IA por segundo
+FPS = 30
+TURNO_DURACION_MS = 500 # Un turno de IA por segundo
 
 # Colores (para la Vista)
 BLANCO = (255, 255, 255)
