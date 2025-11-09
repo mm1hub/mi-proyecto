@@ -103,16 +103,16 @@ class Planta:
         self.energia = energia
         # Aparición garantizada dentro de los límites
         self.rect = pygame.Rect(
-            random.randint(0, max(0, WIDTH - 8)),
-            random.randint(0, max(0, HEIGHT - 8)),
-            8,
-            8,
+            random.randint(0, max(0, WIDTH - 10)),
+            random.randint(0, max(0, HEIGHT - 10)),
+            10,
+            10,
         )
 
 
 class Pez(Animal):
     def __init__(self, nombre, energia, tiempo_vida):
-        super().__init__(nombre, energia, tiempo_vida, ancho=10, alto=10)
+        super().__init__(nombre, energia, tiempo_vida, ancho=15, alto=15)
         self.velocidad_frame = random.uniform(2.0, 4.0)  # Rápidos
 
     def comer(self, planta):
@@ -215,7 +215,7 @@ class Carnivoro(Animal):
 
 class Trucha(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
-        super().__init__(nombre, energia, tiempo_vida, presa_key="peces", hambre_threshold=80, ancho=15, alto=15)
+        super().__init__(nombre, energia, tiempo_vida, presa_key="peces", hambre_threshold=80, ancho=25, alto=25)
         self.velocidad_frame = random.uniform(1.5, 3.5)
 
     def comer(self, pez):
@@ -233,7 +233,7 @@ class Trucha(Carnivoro):
 
 class Tiburon(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
-        super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=20, alto=20)
+        super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=30, alto=30)
         self.velocidad_frame = random.uniform(1.0, 3.0)
 
     def comer(self, trucha):

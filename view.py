@@ -1,5 +1,6 @@
 # view.py
 import pygame
+import os
 from logic import BLANCO, AZUL, VERDE, MARRON, GRIS
 
 class Vista:
@@ -9,7 +10,7 @@ class Vista:
         self.height = height
         self.screen = pygame.display.set_mode((width, height))
         pygame.display.set_caption("Simulador de Ecosistema")
-        self.assets = self.cargar_assets()
+        self.assets = self.cargar_assets_flexible()
         # Estado de simulación y botones
         self.sim_running = False
         self.sim_paused = False
@@ -111,6 +112,37 @@ class Vista:
         if self.btn_stop.collidepoint(pos):
             return 'stop'
         return None
+
+    def cargar_assets_flexible(self):
+        assets = {}
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        assets_dir = os.path.join(base_dir, 'assets')
+
+        def try_load(names, size):
+            for name in names:
+                path = os.path.join(assets_dir, name)
+                if os.path.isfile(path):
+                    try:
+                        img = pygame.image.load(path).convert_alpha()
+                        return pygame.transform.scale(img, size)
+                    except Exception as e:
+                        print(f"Error cargando {path}: {e}")
+            return None
+
+        pez = try_load(['pez.png', 'pez.gif', 'fish.png'], (15, 15))
+        if pez: assets['pez'] = pez
+        trucha = try_load(['trucha.png', 'trucha.gif'], (25, 25))
+        if trucha: assets['trucha'] = trucha
+        tiburon = try_load(['tiburon.png', 'tiburon.gif', 'shark.png'], (30, 30))
+        if tiburon: assets['tiburon'] = tiburon
+        alga = try_load(['alga.png', 'alga.gif', 'algagif.gif'], (10, 10))
+        if alga: assets['alga'] = alga
+
+        if assets:
+            print(f"Assets cargados: {list(assets.keys())} desde '{assets_dir}'.")
+        else:
+            print(f"Advertencia: no se cargó ninguna imagen desde '{assets_dir}'. Se usarán formas básicas.")
+        return assets
 
     def cerrar(self):
         pygame.quit()
