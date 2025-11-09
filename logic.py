@@ -7,7 +7,9 @@ from abc import ABC, abstractmethod
 # ---------------------------------
 WIDTH, HEIGHT = 1024, 768
 FPS = 30
-TURNO_DURACION_MS = 1000  # Un turno de IA cada 1 s para ciclos más largos
+TURNO_DURACION_MS = 1000  # Un turno de IA cada 1 s para ciclos mas largos
+# Tamano de celda para particion espacial (mejora de rendimiento)
+GRID_CELDA = 64
 
 # Colores (usados por la Vista, pero importados desde aquí)
 BLANCO = (255, 255, 255)
@@ -101,8 +103,15 @@ class Animal(ABC):
         self.edad += 1
         self.decidir_objetivo(listas_de_seres)
 
+    def steering_extra(self, vecinos):
+        """Gancho para que subclases aporten steering adicional.
+        Devuelve una tupla (dx, dy) en unidades de velocidad deseada.
+        Por defecto no aplica cambios.
+        """
+        return 0.0, 0.0
+
     def update_movimiento_frame(self, vecinos=None):
-        # Steering básico hacia el objetivo con llegada suave y jitter
+        # Steering basico hacia el objetivo con llegada suave y jitter
         dx = self.target_x - self.pos_x
         dy = self.target_y - self.pos_y
 
@@ -169,9 +178,17 @@ class Animal(ABC):
         elif self.pos_y > HEIGHT - self.rect.height - margin:
             sep_y -= (self.pos_y - (HEIGHT - self.rect.height - margin)) / margin
 
-        # Combinar deseos: objetivo + separación
+        # Combinar deseos: objetivo + separacion
         desired_x += sep_x * max_speed
         desired_y += sep_y * max_speed
+
+        # Ajuste especifico de especie (p.ej. cardumen)
+        try:
+            extra_x, extra_y = self.steering_extra(vecinos or [])
+            desired_x += extra_x
+            desired_y += extra_y
+        except Exception:
+            pass
 
         # Calcular steering
         steer_x = desired_x - self.vel_x
@@ -278,35 +295,103 @@ class Pez(Animal):
             return cria
         return None
 
+    def steering_extra(self, vecinos):
+        # Comportamiento de cardumen (cohesion + alineacion)
+        if not vecinos:
+            return 0.0, 0.0
+        rango = 85.0
+        rango2 = rango * rango
+        sum_x, sum_y = 0.0, 0.0  # centro de masas
+        avg_vx, avg_vy = 0.0, 0.0  # alineacion con velocidades
+        conteo = 0
+        cx = self.pos_x + self.rect.width * 0.5
+        cy = self.pos_y + self.rect.height * 0.5
+        for o in vecinos:
+            if o is self or not isinstance(o, Pez):
+                continue
+            ox = o.pos_x + o.rect.width * 0.5
+            oy = o.pos_y + o.rect.height * 0.5
+            dx = ox - cx
+            dy = oy - cy
+            d2 = dx*dx + dy*dy
+            if d2 <= rango2 and d2 > 1e-6:
+                sum_x += ox
+                sum_y += oy
+                avg_vx += o.vel_x
+                avg_vy += o.vel_y
+                conteo += 1
+        if conteo == 0:
+            return 0.0, 0.0
+        # Cohesion: hacia el centro del grupo
+        cm_x = sum_x / conteo
+        cm_y = sum_y / conteo
+        coh_x = cm_x - cx
+        coh_y = cm_y - cy
+        # Normalizar cohesion a una magnitud maxima
+        mag2 = coh_x*coh_x + coh_y*coh_y
+        if mag2 > 0:
+            mag = mag2 ** 0.5
+            coh_x /= mag
+            coh_y /= mag
+        # Alineacion: hacia la velocidad promedio del grupo
+        ali_x = avg_vx / conteo
+        ali_y = avg_vy / conteo
+        # Limitar alineacion
+        ali_mag2 = ali_x*ali_x + ali_y*ali_y
+        if ali_mag2 > 1.0:
+            ali_mag = ali_mag2 ** 0.5
+            ali_x /= ali_mag
+            ali_y /= ali_mag
+        # Pesos suaves para no dominar al objetivo principal
+        w_coh = 0.35 * self.velocidad_frame
+        w_ali = 0.50 * self.velocidad_frame
+        return coh_x * w_coh + ali_x * w_ali, coh_y * w_coh + ali_y * w_ali
+
     def decidir_objetivo(self, listas_de_seres):
         lista_depredadores = listas_de_seres["truchas"] + listas_de_seres["tiburones"]
         lista_de_plantas = listas_de_seres["plantas"]
-        rango_vision_depredador = 150 * 150
-        rango_vision_planta = 100 * 100
+        rango_dep2 = 170 * 170
+        rango_pl2 = 110 * 110
         depredador_cercano = None
         planta_cercana = None
-        dist_min_depredador = rango_vision_depredador
-        dist_min_planta = rango_vision_planta
+        dist_min_dep = rango_dep2
+        dist_min_pl = rango_pl2
 
+        cx, cy = self.rect.centerx, self.rect.centery
         for dep in lista_depredadores:
-            distancia = (self.rect.centerx - dep.rect.centerx) ** 2 + (self.rect.centery - dep.rect.centery) ** 2
-            if distancia < dist_min_depredador:
-                dist_min_depredador = distancia
+            dx = cx - dep.rect.centerx
+            dy = cy - dep.rect.centery
+            d2 = dx*dx + dy*dy
+            if d2 < dist_min_dep:
+                dist_min_dep = d2
                 depredador_cercano = dep
 
         if self.energia < 70:
             for planta in lista_de_plantas:
-                distancia = (self.rect.centerx - planta.rect.centerx) ** 2 + (self.rect.centery - planta.rect.centery) ** 2
-                if distancia < dist_min_planta:
-                    dist_min_planta = distancia
+                dx = cx - planta.rect.centerx
+                dy = cy - planta.rect.centery
+                d2 = dx*dx + dy*dy
+                if d2 < dist_min_pl:
+                    dist_min_pl = d2
                     planta_cercana = planta
         
-        if depredador_cercano:
-            if self.rect.centerx < depredador_cercano.rect.centerx: self.target_x = self.rect.x - 70
-            else: self.target_x = self.rect.x + 70
-            if self.rect.centery < depredador_cercano.rect.centery: self.target_y = self.rect.y - 70
-            else: self.target_y = self.rect.y + 70
-        elif self.energia < 70 and planta_cercana:
+        if depredador_cercano is not None:
+            # Evadir alejandose del depredador mas cercano con un poco de ruido
+            vx = cx - depredador_cercano.rect.centerx
+            vy = cy - depredador_cercano.rect.centery
+            mag2 = vx*vx + vy*vy
+            if mag2 > 0:
+                mag = mag2 ** 0.5
+                vx /= mag
+                vy /= mag
+            distancia_evade = 120.0
+            perp = (-vy, vx)
+            jitter = random.uniform(-25.0, 25.0)
+            tx = cx + vx * distancia_evade + perp[0] * (jitter * 0.1)
+            ty = cy + vy * distancia_evade + perp[1] * (jitter * 0.1)
+            self.target_x = max(0, min(tx - self.rect.width * 0.5, WIDTH - self.rect.width))
+            self.target_y = max(0, min(ty - self.rect.height * 0.5, HEIGHT - self.rect.height))
+        elif self.energia < 70 and planta_cercana is not None:
             self.target_x = float(planta_cercana.rect.centerx)
             self.target_y = float(planta_cercana.rect.centery)
         else:
@@ -322,23 +407,40 @@ class Carnivoro(Animal):
         super().__init__(nombre, energia, tiempo_vida, ancho=ancho, alto=alto)
         self.presa_key = presa_key
         self.hambre_threshold = hambre_threshold
+        # Rango de busqueda y comportamiento de oportunidad
+        self.sensor_rango = 240.0
+        self.oportunidad_prob = 0.35
 
     def decidir_objetivo(self, listas_de_seres):
         lista_de_presas = listas_de_seres[self.presa_key]
         presa_cercana = None
-        distancia_minima = float('inf')
+        distancia_minima2 = float('inf')
+        cx, cy = self.rect.centerx, self.rect.centery
+        sensor2 = self.sensor_rango * self.sensor_rango
 
-        if self.energia < self.hambre_threshold:
+        perseguir = self.energia < self.hambre_threshold
+        if not perseguir and random.random() < self.oportunidad_prob:
+            perseguir = True
+
+        if perseguir:
             for presa in lista_de_presas:
-                distancia = (self.rect.centerx - presa.rect.centerx) ** 2 + (self.rect.centery - presa.rect.centery) ** 2
-                if distancia < distancia_minima:
-                    distancia_minima = distancia
+                dx = cx - presa.rect.centerx
+                dy = cy - presa.rect.centery
+                d2 = dx*dx + dy*dy
+                if d2 < sensor2 and d2 < distancia_minima2:
+                    distancia_minima2 = d2
                     presa_cercana = presa
 
-        if presa_cercana:
-            self.target_x = float(presa_cercana.rect.centerx)
-            self.target_y = float(presa_cercana.rect.centery)
+        if presa_cercana is not None:
+            # Prediccion simple: apuntar donde estara la presa
+            dist = distancia_minima2 ** 0.5 if distancia_minima2 < float('inf') else 0.0
+            lead = min(1.2, dist / max(1.0, self.velocidad_frame * 12.0))
+            pred_x = presa_cercana.rect.centerx + presa_cercana.vel_x * lead * 12.0
+            pred_y = presa_cercana.rect.centery + presa_cercana.vel_y * lead * 12.0
+            self.target_x = float(pred_x)
+            self.target_y = float(pred_y)
         else:
+            # Patrullar
             if abs(self.rect.x - self.target_x) < 5 and abs(self.rect.y - self.target_y) < 5:
                 self.target_x = self.rect.x + random.randint(-50, 50)
                 self.target_y = self.rect.y + random.randint(-50, 50)
@@ -370,6 +472,7 @@ class Tiburon(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
         super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=45, alto=45)
         self.velocidad_frame = random.uniform(1.0, 3.0)
+        self.sensor_rango = 280.0
 
     def comer(self, trucha):
         if isinstance(trucha, Trucha):
@@ -500,6 +603,40 @@ class Ecosistema:
             self.plantas.append(Planta("Alga", 20))
 
     def actualizar_movimiento_frame(self):
-        todos_los_animales = self.peces + self.truchas + self.tiburones
-        for animal in todos_los_animales:
-            animal.update_movimiento_frame(todos_los_animales)
+        # Particionamiento espacial para reducir vecinos por entidad
+        todos = self.peces + self.truchas + self.tiburones
+        if not todos:
+            return
+        c = GRID_CELDA
+        celdas = {}
+        for a in todos:
+            cx = int(a.pos_x) // c
+            cy = int(a.pos_y) // c
+            celdas.setdefault((cx, cy), []).append(a)
+
+        # Radio maximo para vecinos (para separar y boids)
+        vecino_r = 96.0
+        vecino_r2 = vecino_r * vecino_r
+
+        for a in todos:
+            cx = int(a.pos_x) // c
+            cy = int(a.pos_y) // c
+            vecinos = []
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    lista = celdas.get((cx + dx, cy + dy))
+                    if not lista:
+                        continue
+                    for o in lista:
+                        if o is a:
+                            continue
+                        # Filtrar por distancia
+                        ox = o.pos_x + o.rect.width * 0.5
+                        oy = o.pos_y + o.rect.height * 0.5
+                        sx = a.pos_x + a.rect.width * 0.5
+                        sy = a.pos_y + a.rect.height * 0.5
+                        ddx = sx - ox
+                        ddy = sy - oy
+                        if ddx*ddx + ddy*ddy <= vecino_r2:
+                            vecinos.append(o)
+            a.update_movimiento_frame(vecinos)
