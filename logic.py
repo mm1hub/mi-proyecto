@@ -1,20 +1,37 @@
-import pygame
+﻿import pygame
 import random
 from abc import ABC, abstractmethod
 
 # ---------------------------------
-# CONFIGURACIÓN GLOBAL (compartida)
+# CONFIGURACIÃ“N GLOBAL (compartida)
 # ---------------------------------
 WIDTH, HEIGHT = 1024, 768
 FPS = 30
-TURNO_DURACION_MS = 1000  # Un turno de IA cada 1 s para ciclos más largos
+TURNO_DURACION_MS = 1000  # Un turno de IA cada 1 s para ciclos mÃ¡s largos
 
-# Colores (usados por la Vista, pero importados desde aquí)
+# Colores (usados por la Vista, pero importados desde aquÃ­)
 BLANCO = (255, 255, 255)
 AZUL = (0, 0, 255)
 VERDE = (0, 255, 0)
 MARRON = (139, 69, 19)
 GRIS = (169, 169, 169)
+
+# Configuración de texturas: edita aquí los nombres de archivo y tamaños
+# Puedes usar un string (un único nombre) o una lista de nombres alternativos por entidad.
+TEXTURAS = {
+    'pez': ['pez.png', 'pez.gif', 'fish.png'],
+    'trucha': ['trucha.png', 'trucha.gif'],
+    'tiburon': ['tiburon.png', 'tiburon.gif', 'shark.png'],
+    'alga': ['algagif.gif', 'alga.png', 'alga.gif'],
+}
+
+# Tamaños visuales de cada entidad (ancho, alto)
+TEXTURAS_TAM = {
+    'pez': (20, 20),
+    'trucha': (35, 35),
+    'tiburon': (45, 45),
+    'alga': (14, 14),
+}
 
 # --- Colores para la VISTA (UI y Fondo) ---
 AGUA_CLARA = (173, 216, 230)
@@ -30,8 +47,8 @@ COLOR_RESUME = (23, 162, 184)
 
 
 # ---------------------------------
-# CAPA DE LÓGICA (MODELO)
-# (El resto de este archivo es EXACTAMENTE el que tú enviaste)
+# CAPA DE LÃ“GICA (MODELO)
+# (El resto de este archivo es EXACTAMENTE el que tÃº enviaste)
 # ---------------------------------
 
 class Animal(ABC):
@@ -94,15 +111,15 @@ class Planta:
         self.nombre = nombre
         self.energia = energia
         self.rect = pygame.Rect(
-            random.randint(0, max(0, WIDTH - 10)),
-            random.randint(0, max(0, HEIGHT - 10)),
-            10,
-            10,
+            random.randint(0, max(0, WIDTH - 14)),
+            random.randint(0, max(0, HEIGHT - 14)),
+            14,
+            14,
         )
 
 class Pez(Animal):
     def __init__(self, nombre, energia, tiempo_vida):
-        super().__init__(nombre, energia, tiempo_vida, ancho=15, alto=15)
+        super().__init__(nombre, energia, tiempo_vida, ancho=20, alto=20)
         self.velocidad_frame = random.uniform(2.0, 4.0)
 
     def comer(self, planta):
@@ -187,7 +204,7 @@ class Carnivoro(Animal):
 
 class Trucha(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
-        super().__init__(nombre, energia, tiempo_vida, presa_key="peces", hambre_threshold=80, ancho=25, alto=25)
+        super().__init__(nombre, energia, tiempo_vida, presa_key="peces", hambre_threshold=80, ancho=35, alto=35)
         self.velocidad_frame = random.uniform(1.5, 3.5)
 
     def comer(self, pez):
@@ -204,7 +221,7 @@ class Trucha(Carnivoro):
 
 class Tiburon(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
-        super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=30, alto=30)
+        super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=45, alto=45)
         self.velocidad_frame = random.uniform(1.0, 3.0)
 
     def comer(self, trucha):
@@ -214,7 +231,7 @@ class Tiburon(Carnivoro):
     def reproducir(self):
         if self.energia > 200 and self.edad > 10 and random.random() < 0.03:
             self.energia -= 100
-            cria = Tiburon("Tiburón", 200, 30)
+            cria = Tiburon("TiburÃ³n", 200, 30)
             cria.rect.topleft = self.rect.topleft
             return cria
         return None
@@ -227,11 +244,13 @@ class Ecosistema:
         self.plantas = []
 
     def poblar_inicial(self):
-        self.plantas = [Planta("Alga", 20) for _ in range(25)]
-        self.peces = [Pez("Pejerrey", 70, 120) for _ in range(15)]
-        self.truchas = [Trucha("Trucha", 120, 180) for _ in range(5)]
-        self.tiburones = [Tiburon("Tiburón", 200, 30) for _ in range(2)]
+        self.poblar_custom()
 
+    def poblar_custom(self, n_plantas=25, n_peces=15, n_truchas=5, n_tiburones=2):
+        self.plantas = [Planta("Alga", 20) for _ in range(n_plantas)]
+        self.peces = [Pez("Pejerrey", 70, 120) for _ in range(n_peces)]
+        self.truchas = [Trucha("Trucha", 120, 180) for _ in range(n_truchas)]
+        self.tiburones = [Tiburon("Tiburon", 200, 30) for _ in range(n_tiburones)]
     def simular_turno_ia(self):
         peces_muertos, truchas_muertas, tiburones_muertos = [], [], []
         plantas_comidas = []
@@ -306,3 +325,7 @@ class Ecosistema:
         todos_los_animales = self.peces + self.truchas + self.tiburones
         for animal in todos_los_animales:
             animal.update_movimiento_frame()
+
+
+
+

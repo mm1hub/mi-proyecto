@@ -23,16 +23,28 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                accion = vista.hit_button(event.pos)
+                accion = getattr(vista, 'handle_click', vista.hit_button)(event.pos)
                 if accion == 'start':
+                    # Construir ecosistema con conteos personalizados
+                    cfg = getattr(vista, 'get_config_counts', lambda: None)()
+                    ecosistema = Ecosistema()
+                    if cfg:
+                        ecosistema.poblar_custom(
+                            n_plantas=cfg['plantas'],
+                            n_peces=cfg['peces'],
+                            n_truchas=cfg['truchas'],
+                            n_tiburones=cfg['tiburones'],
+                        )
+                    else:
+                        ecosistema.poblar_inicial()
                     sim_running = True
                     sim_paused = False
                     proximo_turno_ia = pygame.time.get_ticks() + TURNO_DURACION_MS
                 elif accion == 'pause' and sim_running:
                     sim_paused = not sim_paused
                 elif accion == 'stop' and sim_running:
+                    # Reinicia a un ecosistema vacío; podrás reconfigurar y comenzar de nuevo
                     ecosistema = Ecosistema()
-                    ecosistema.poblar_inicial()
                     sim_running = False
                     sim_paused = False
 
