@@ -1,16 +1,14 @@
-ï»¿import os
+import os
 import pygame
 import random
 from logic import (
-    BLANCO, AZUL, VERDE, MARRON, GRIS,
+    BLANCO, AZUL, VERDE, MARRON, GRIS, 
     AGUA_CLARA, AGUA_OSCURA, NEGRO_UI,
     COLOR_TEXTO_BTN, COLOR_START, COLOR_STOP, COLOR_PAUSE, COLOR_RESUME,
     TEXTURAS, TEXTURAS_TAM,
     COLOR_COMER, COLOR_NACER, COLOR_MORIR,
     # --- (IDEA 10) Importar color de burbuja ---
-    COLOR_BURBUJA,
-    # Importar clases de entidades para isinstance
-    Planta, Pez, Trucha, Tiburon,
+    COLOR_BURBUJA
 )
 
 # --- (IDEA 3) Clase para Efectos Visuales ---
@@ -24,12 +22,12 @@ class Particula:
         self.vida = vida
         self.velocidad_y = velocidad_y
         self.alpha = 255
-        # --- (IDEA 1) AÃ±adir un rect para Z-Sorting ---
+        # --- (IDEA 1) Añadir un rect para Z-Sorting ---
         # El rect se actualiza en 'actualizar'
         self.rect = pygame.Rect(self.x, self.y, 20, 20) 
 
     def actualizar(self):
-        """Mueve la partÃ­cula hacia arriba y reduce su vida."""
+        """Mueve la partícula hacia arriba y reduce su vida."""
         self.y += self.velocidad_y
         self.vida -= 1
         if self.vida < self.vida_maxima / 2:
@@ -39,14 +37,14 @@ class Particula:
         self.rect.topleft = (int(self.x), int(self.y))
 
     def dibujar(self, screen, font, offset=(0,0)):
-        """Dibuja el texto de la partÃ­cula."""
+        """Dibuja el texto de la partícula."""
         try:
             img = font.render(self.texto, True, self.color)
             img.set_alpha(self.alpha)
             # --- (IDEA 9) Aplicar offset de screen shake ---
             screen.blit(img, (int(self.x + offset[0]), int(self.y + offset[1])))
         except Exception as e:
-            print(f"Error al dibujar partÃ­cula: {e}")
+            print(f"Error al dibujar partícula: {e}")
 
 # --- (IDEA 10) Clase para Burbujas ---
 class Burbuja:
@@ -77,13 +75,13 @@ class Burbuja:
         self.rect.center = (int(self.x), int(self.y))
     
     def dibujar(self, screen, offset=(0,0)):
-        """Dibuja la burbuja como un cÃ­rculo semi-transparente."""
+        """Dibuja la burbuja como un círculo semi-transparente."""
         if self.radio < 1:
             return
             
         # Crear una superficie para la transparencia
         surf = pygame.Surface((self.radio*2, self.radio*2), pygame.SRCALPHA)
-        # Dibujar el cÃ­rculo en la superficie
+        # Dibujar el círculo en la superficie
         alpha = int(90 * (self.vida / self.vida_maxima)) # Desvanecer con la vida
         color_con_alpha = COLOR_BURBUJA + (alpha,)
         pygame.draw.circle(surf, color_con_alpha, (self.radio, self.radio), self.radio)
@@ -98,7 +96,7 @@ class Vista:
         self.width = width
         self.height = height
         self.screen = pygame.display.set_mode((width, height))
-        pygame.display.set_caption("Simulador de Ecosistema AcuÃ¡tico")
+        pygame.display.set_caption("Simulador de Ecosistema Acuático")
         self.assets = self.cargar_assets_flexible()
         
         self.fondo_superficie = self._crear_fondo_estatico(width, height)
@@ -108,7 +106,7 @@ class Vista:
             self.font_overlay = pygame.font.SysFont(None, 100)
             self.font_particula = pygame.font.SysFont('Arial', 18, bold=True)
         except:
-            print("Warning: No se pudo cargar la fuente. La UI no se mostrarÃ¡.")
+            print("Warning: No se pudo cargar la fuente. La UI no se mostrará.")
             self.font = None
             self.font_overlay = None
             self.font_particula = None
@@ -176,7 +174,7 @@ class Vista:
         if assets:
             print(f"Assets cargados: {list(assets.keys())} desde '{assets_dir}'.")
         else:
-            print(f"Advertencia: no se cargÃ³ ninguna imagen desde '{assets_dir}'. Se usarÃ¡n formas bÃ¡sicas.")
+            print(f"Advertencia: no se cargó ninguna imagen desde '{assets_dir}'. Se usarán formas básicas.")
         return assets
 
     def _dibujar_boton(self, rect, color, texto, color_texto=COLOR_TEXTO_BTN, offset=(0,0)):
@@ -220,7 +218,7 @@ class Vista:
             if b.vida <= 0:
                 self.burbujas.pop(i)
         
-        # Crear nuevas burbujas aleatoriamente (solo si no estÃ¡ pausado)
+        # Crear nuevas burbujas aleatoriamente (solo si no está pausado)
         if self.sim_running and not self.sim_paused:
             animales_que_respiran = ecosistema.peces + ecosistema.truchas
             if random.random() < 0.05: # Chance de 5% por frame
@@ -229,13 +227,13 @@ class Vista:
                     self.burbujas.append(Burbuja(animal.rect.centerx, animal.rect.top))
 
         # --- (IDEA 1) Z-Sorting (Falso 3D) ---
-        # 1. Crear una lista Ãºnica con todas las entidades
+        # 1. Crear una lista única con todas las entidades
         todas_las_entidades = (
             ecosistema.plantas + 
             ecosistema.peces + 
             ecosistema.truchas + 
             ecosistema.tiburones +
-            self.burbujas # Dibujar burbujas junto con todo lo demÃ¡s
+            self.burbujas # Dibujar burbujas junto con todo lo demás
         )
         
         # 2. Ordenar la lista por la parte inferior (Y)
@@ -245,192 +243,8 @@ class Vista:
         for entidad in todas_las_entidades:
             
             # Calcular el rect de dibujo con el offset
-            # (El rect de burbuja ya estÃ¡ en su centro, blit usarÃ¡ su topleft)
+            # (El rect de burbuja ya está en su centro, blit usará su topleft)
             if isinstance(entidad, Burbuja):
                 entidad.dibujar(self.screen, shake_offset)
                 continue # Saltar al siguiente
                 
-            rect_dibujo = entidad.rect.move(shake_offset)
-
-            # --- DIBUJO POLIMÃ“RFICO ---
-            
-            if isinstance(entidad, Planta):
-                if 'alga' in self.assets:
-                    self.screen.blit(self.assets['alga'], rect_dibujo)
-                else:
-                    pygame.draw.circle(self.screen, VERDE, rect_dibujo.center, 7)
-            
-            elif isinstance(entidad, Pez):
-                if 'pez' in self.assets:
-                    sprite = self.assets['pez']
-                    if entidad.direccion_h == -1:
-                        sprite = pygame.transform.flip(sprite, True, False)
-                    self.screen.blit(sprite, rect_dibujo)
-                else:
-                    pygame.draw.circle(self.screen, AZUL, rect_dibujo.center, 10)
-            
-            elif isinstance(entidad, Trucha):
-                if 'trucha' in self.assets:
-                    sprite = self.assets['trucha']
-                    if entidad.direccion_h == -1:
-                        sprite = pygame.transform.flip(sprite, True, False)
-                    self.screen.blit(sprite, rect_dibujo)
-                else:
-                    pygame.draw.circle(self.screen, MARRON, rect_dibujo.center, 17)
-            
-            elif isinstance(entidad, Tiburon):
-                if 'tiburon' in self.assets:
-                    sprite = self.assets['tiburon']
-                    if entidad.direccion_h == -1:
-                        sprite = pygame.transform.flip(sprite, True, False)
-                    self.screen.blit(sprite, rect_dibujo)
-                else:
-                    pygame.draw.circle(self.screen, GRIS, rect_dibujo.center, 22)
-
-
-        # --- DIBUJO DE UI (Actualizado) ---
-        self.dibujar_ui(ecosistema, shake_offset)
-        
-        # --- (IDEA 3) Procesar eventos y dibujar partÃ­culas ---
-        self.gestionar_eventos(ecosistema.eventos_visuales)
-        self.actualizar_y_dibujar_particulas(shake_offset)
-        
-        if self.sim_running and self.sim_paused:
-            self.dibujar_overlay_pausa(shake_offset)
-
-        pygame.display.flip()
-
-    def dibujar_ui(self, ecosistema, offset=(0,0)):
-        if not self.font:
-            return
-            
-        # --- (IDEA 9) Aplicar offset al panel ---
-        panel_rect = pygame.Rect(0, 0, self.width, 40).move(offset)
-        panel_ui = pygame.Surface((self.width, 40), pygame.SRCALPHA)
-        panel_ui.fill((240, 240, 240, 180))
-        self.screen.blit(panel_ui, panel_rect.topleft)
-
-        # EstadÃ­sticas (Lado izquierdo)
-        textos = [
-            (f"Algas: {len(ecosistema.plantas)}", VERDE, 10),
-            (f"Peces: {len(ecosistema.peces)}", AZUL, 130),
-            (f"Truchas: {len(ecosistema.truchas)}", MARRON, 260),
-            (f"Tiburones: {len(ecosistema.tiburones)}", GRIS, 420),
-        ]
-        
-        for (texto, color, x_pos) in textos:
-            img = self.font.render(texto, True, NEGRO_UI) 
-            # --- (IDEA 9) Aplicar offset al texto ---
-            self.screen.blit(img, (x_pos + offset[0], 10 + offset[1]))
-            
-        # Panel de configuraciÃ³n previa
-        if not self.sim_running:
-            for row in self.cfg_rows:
-                # --- (IDEA 9) Aplicar offset a todo ---
-                lbl_img = self.font.render(row['label']+":", True, NEGRO_UI)
-                self.screen.blit(lbl_img, (10 + offset[0], row['y'] + 5 + offset[1]))
-                
-                self._dibujar_boton(row['minus'], (200,200,200), "-", NEGRO_UI, offset)
-                self._dibujar_boton(row['plus'], (200,200,200), "+", NEGRO_UI, offset)
-                
-                val = self.cfg[row['key']]
-                val_img = self.font.render(str(val), True, NEGRO_UI)
-                val_rect = val_img.get_rect(center=(row['minus'].right + 60 + offset[0], row['minus'].centery + offset[1]))
-                self.screen.blit(val_img, val_rect)
-
-        # Botones de control (Lado derecho)
-        if not self.sim_running:
-            self._dibujar_boton(self.btn_start, COLOR_START, "Comenzar", offset=offset)
-        
-        if self.sim_running:
-            if self.sim_paused:
-                self._dibujar_boton(self.btn_pause, COLOR_RESUME, "Reanudar", offset=offset)
-            else:
-                self._dibujar_boton(self.btn_pause, COLOR_PAUSE, "Pausar", NEGRO_UI, offset)
-                
-            self._dibujar_boton(self.btn_stop, COLOR_STOP, "Detener", offset=offset)
-
-    def gestionar_eventos(self, eventos):
-        if not self.font_particula:
-            eventos.clear()
-            return
-
-        for evento in eventos:
-            try:
-                tipo = evento[0]
-                pos = evento[1]
-                pos_adj = (pos[0] + random.randint(-5, 5), pos[1] + random.randint(-5, 5))
-                
-                if tipo == 'comer_pez':
-                    valor = evento[2]
-                    self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER))
-                
-                # --- (IDEA 9) Activar Screen Shake para eventos grandes ---
-                elif tipo == 'comer_depredador':
-                    valor = evento[2]
-                    self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER, vida=60))
-                    self.screen_shake = 10 # 10 frames de vibraciÃ³n
-                
-                elif tipo == 'nacer':
-                    self.particulas.append(Particula("â¤ï¸", pos_adj, COLOR_NACER, vida=60))
-                
-                elif tipo == 'morir':
-                    self.particulas.append(Particula("ðŸ’€", pos_adj, COLOR_MORIR, vida=60))
-                    self.screen_shake = 8 # VibraciÃ³n mÃ¡s corta por muerte
-            
-            except Exception as e:
-                print(f"Error procesando evento {evento}: {e}")
-        
-        eventos.clear()
-
-    def actualizar_y_dibujar_particulas(self, offset=(0,0)):
-        if not self.font_particula:
-            return
-            
-        for i in range(len(self.particulas) - 1, -1, -1):
-            p = self.particulas[i]
-            p.actualizar()
-            
-            if p.vida <= 0:
-                self.particulas.pop(i)
-            else:
-                # --- (IDEA 9) Pasar offset al dibujar ---
-                p.dibujar(self.screen, self.font_particula, offset)
-
-    def set_estado_simulacion(self, sim_running, sim_paused):
-        self.sim_running = sim_running
-        self.sim_paused = sim_paused
-
-    def get_config_counts(self):
-        return {
-            'plantas': int(self.cfg.get('plantas', 25)),
-            'peces': int(self.cfg.get('peces', 15)),
-            'truchas': int(self.cfg.get('truchas', 5)),
-            'tiburones': int(self.cfg.get('tiburones', 2)),
-        }
-
-    def handle_click(self, pos):
-        # El click no necesita offset, porque 'pos' es la posiciÃ³n real del mouse
-        if not self.sim_running:
-            for row in self.cfg_rows:
-                if row['minus'].collidepoint(pos):
-                    k = row['key']
-                    self.cfg[k] = max(0, self.cfg[k] - 1)
-                    return 'cfg_changed'
-                if row['plus'].collidepoint(pos):
-                    k = row['key']
-                    self.cfg[k] = min(200, self.cfg[k] + 1)
-                    return 'cfg_changed'
-        return self.hit_button(pos)
-
-    def hit_button(self, pos):
-        if self.btn_start.collidepoint(pos) and not self.sim_running:
-            return 'start'
-        if self.btn_pause.collidepoint(pos) and self.sim_running:
-            return 'pause'
-        if self.btn_stop.collidepoint(pos) and self.sim_running:
-            return 'stop'
-        return None
-
-    def cerrar(self):
-        pygame.quit()

@@ -49,6 +49,9 @@ COLOR_COMER = (144, 238, 144) # Verde claro
 COLOR_NACER = (255, 182, 193) # Rosa claro
 COLOR_MORIR = (160, 160, 160) # Gris
 
+# --- (IDEA 10) Color para Burbujas ---
+COLOR_BURBUJA = (200, 225, 255)
+
 
 # ---------------------------------
 # CAPA DE LÓGICA (MODELO)
@@ -69,6 +72,9 @@ class Animal(ABC):
         self.target_x = float(self.rect.x)
         self.target_y = float(self.rect.y)
         self.velocidad_frame = random.uniform(1.0, 3.0)
+        # Velocidad actual (vector) para movimiento más suave
+        self.vel_x = 0.0
+        self.vel_y = 0.0
         self.pos_x = float(self.rect.x)
         self.pos_y = float(self.rect.y)
         
@@ -95,24 +101,148 @@ class Animal(ABC):
         self.edad += 1
         self.decidir_objetivo(listas_de_seres)
 
-    def update_movimiento_frame(self):
+    def update_movimiento_frame(self, vecinos=None):
+        # Steering básico hacia el objetivo con llegada suave y jitter
         dx = self.target_x - self.pos_x
         dy = self.target_y - self.pos_y
-        
-        # --- (IDEA 2) Actualizar dirección basado en el movimiento ---
-        if abs(dx) > 0.1: # Usar un umbral pequeño para evitar "jitter"
-            step_x = max(-self.velocidad_frame, min(self.velocidad_frame, dx))
-            self.pos_x += step_x
-            self.direccion_h = 1 if step_x > 0 else -1 # Actualiza dirección
-        
-        if abs(dy) > 0:
-            step_y = max(-self.velocidad_frame, min(self.velocidad_frame, dy))
-            self.pos_y += step_y
-            
+
+        dist_sq = dx*dx + dy*dy
+        dist = dist_sq ** 0.5 if dist_sq > 0 else 0.0
+
+        max_speed = float(self.velocidad_frame)
+        # Reducir fuerza para giros más suaves
+        max_force = 0.22  # aceleración máxima por frame
+
+        desired_x, desired_y = 0.0, 0.0
+        if dist > 0.001:
+            # Llegada suave: reduce velocidad al acercarse
+            slow_radius = 80.0
+            desired_speed = max_speed if dist > slow_radius else max(0.4, max_speed * (dist / slow_radius))
+            inv_d = desired_speed / dist
+            desired_x = dx * inv_d
+            desired_y = dy * inv_d
+
+        # Separación simple para evitar que se peguen
+        sep_x, sep_y = 0.0, 0.0
+        if vecinos:
+            sep_radius = 28.0
+            # Pesar separación para que no domine el objetivo
+            sep_weight = 0.6
+            total = 0
+            for other in vecinos:
+                if other is self:
+                    continue
+                ox = (other.rect.x + other.rect.width * 0.5)
+                oy = (other.rect.y + other.rect.height * 0.5)
+                sx = self.pos_x + self.rect.width * 0.5
+                sy = self.pos_y + self.rect.height * 0.5
+                ddx = sx - ox
+                ddy = sy - oy
+                d2 = ddx*ddx + ddy*ddy
+                if d2 > 0 and d2 < sep_radius * sep_radius:
+                    d = d2 ** 0.5
+                    if d > 0:
+                        # Más fuerza cuanto más cerca
+                        repel = (sep_radius - d) / sep_radius
+                        sep_x += (ddx / d) * repel
+                        sep_y += (ddy / d) * repel
+                        total += 1
+            if total > 0:
+                sep_x /= total
+                sep_y /= total
+                # Limitar magnitud de la separación
+                m2 = sep_x*sep_x + sep_y*sep_y
+                if m2 > 1.0:
+                    m = m2 ** 0.5
+                    sep_x /= m
+                    sep_y /= m
+                sep_x *= sep_weight
+                sep_y *= sep_weight
+        # Paredes: empuje suave hacia adentro si está muy cerca del borde
+        margin = 20.0
+        if self.pos_x < margin:
+            sep_x += (margin - self.pos_x) / margin
+        elif self.pos_x > WIDTH - self.rect.width - margin:
+            sep_x -= (self.pos_x - (WIDTH - self.rect.width - margin)) / margin
+        if self.pos_y < margin:
+            sep_y += (margin - self.pos_y) / margin
+        elif self.pos_y > HEIGHT - self.rect.height - margin:
+            sep_y -= (self.pos_y - (HEIGHT - self.rect.height - margin)) / margin
+
+        # Combinar deseos: objetivo + separación
+        desired_x += sep_x * max_speed
+        desired_y += sep_y * max_speed
+
+        # Calcular steering
+        steer_x = desired_x - self.vel_x
+        steer_y = desired_y - self.vel_y
+        # Limitar fuerza
+        mag_steer_sq = steer_x*steer_x + steer_y*steer_y
+        if mag_steer_sq > max_force*max_force:
+            mag_steer = mag_steer_sq ** 0.5
+            if mag_steer > 0:
+                scale = max_force / mag_steer
+                steer_x *= scale
+                steer_y *= scale
+
+        # Pequeño jitter para hacerlo más orgánico (reducido)
+        jitter = 0.02
+        steer_x += random.uniform(-jitter, jitter)
+        steer_y += random.uniform(-jitter, jitter)
+
+        # Aplicar aceleración
+        self.vel_x += steer_x
+        self.vel_y += steer_y
+
+        # Suavizar con amortiguación ligera para evitar oscilaciones
+        damping = 0.98
+        self.vel_x *= damping
+        self.vel_y *= damping
+
+        # Limitar velocidad
+        vel_sq = self.vel_x*self.vel_x + self.vel_y*self.vel_y
+        if vel_sq > max_speed*max_speed:
+            v = vel_sq ** 0.5
+            if v > 0:
+                s = max_speed / v
+                self.vel_x *= s
+                self.vel_y *= s
+
+        # Actualizar posición
+        self.pos_x += self.vel_x
+        self.pos_y += self.vel_y
+
+        # Si estamos muy cerca del objetivo, amortiguar velocidad para evitar órbitas
+        if dist < 1.2:
+            self.vel_x *= 0.5
+            self.vel_y *= 0.5
+
+        # Dirección horizontal para sprites
+        if abs(self.vel_x) > 0.01:
+            self.direccion_h = 1 if self.vel_x > 0 else -1
+
+        # Confinar a la pantalla y amortiguar si toca bordes
         max_x = max(0, WIDTH - self.rect.width)
         max_y = max(0, HEIGHT - self.rect.height)
-        self.pos_x = max(0.0, min(self.pos_x, float(max_x)))
-        self.pos_y = max(0.0, min(self.pos_y, float(max_y)))
+        out_x = False
+        out_y = False
+        if self.pos_x < 0.0:
+            self.pos_x = 0.0
+            out_x = True
+        elif self.pos_x > float(max_x):
+            self.pos_x = float(max_x)
+            out_x = True
+        if self.pos_y < 0.0:
+            self.pos_y = 0.0
+            out_y = True
+        elif self.pos_y > float(max_y):
+            self.pos_y = float(max_y)
+            out_y = True
+        if out_x:
+            self.vel_x *= -0.5
+        if out_y:
+            self.vel_y *= -0.5
+
         self.rect.topleft = (int(self.pos_x), int(self.pos_y))
 
     def ha_muerto(self):
@@ -137,7 +267,7 @@ class Pez(Animal):
     def comer(self, planta):
         if isinstance(planta, Planta):
             self.energia += planta.energia
-            return planta.energia # --- (IDEA 3) Devuelve cuánta energía ganó
+            return planta.energia # Devuelve cuánta energía ganó
         return 0
 
     def reproducir(self):
@@ -225,7 +355,7 @@ class Trucha(Carnivoro):
         if isinstance(pez, Pez):
             energia_ganada = pez.energia // 2
             self.energia += energia_ganada
-            return energia_ganada # --- (IDEA 3)
+            return energia_ganada
         return 0
 
     def reproducir(self):
@@ -245,7 +375,7 @@ class Tiburon(Carnivoro):
         if isinstance(trucha, Trucha):
             energia_ganada = trucha.energia // 2
             self.energia += energia_ganada
-            return energia_ganada # --- (IDEA 3)
+            return energia_ganada
         return 0
 
     def reproducir(self):
@@ -262,7 +392,7 @@ class Ecosistema:
         self.truchas = []
         self.tiburones = []
         self.plantas = []
-        # --- (IDEA 3) Lista para que la Vista lea los eventos ---
+        # --- (IDEA 3/9) Lista para que la Vista lea los eventos ---
         self.eventos_visuales = []
 
     def poblar_inicial(self):
@@ -275,7 +405,6 @@ class Ecosistema:
         self.tiburones = [Tiburon("Tiburon", 200, 30) for _ in range(n_tiburones)]
         
     def simular_turno_ia(self):
-        # --- (IDEA 3) Limpiar eventos del turno anterior ---
         self.eventos_visuales.clear()
         
         peces_muertos, truchas_muertas, tiburones_muertos = [], [], []
@@ -295,19 +424,18 @@ class Ecosistema:
             for planta in self.plantas:
                 if pez.rect.colliderect(planta.rect) and planta not in plantas_comidas:
                     energia_ganada = pez.comer(planta)
-                    # --- (IDEA 3) Registrar evento de comer ---
                     if energia_ganada > 0:
-                        self.eventos_visuales.append(('comer', pez.rect.center, energia_ganada))
+                        # --- (IDEA 9) Evento de baja importancia ---
+                        self.eventos_visuales.append(('comer_pez', pez.rect.center, energia_ganada))
                     plantas_comidas.append(planta)
                     break
             cria = pez.reproducir()
             if cria:
                 nuevas_crias_peces.append(cria)
-                # --- (IDEA 3) Registrar evento de nacer ---
                 self.eventos_visuales.append(('nacer', cria.rect.center))
             if pez.ha_muerto():
                 peces_muertos.append(pez)
-                # --- (IDEA 3) Registrar evento de morir ---
+                # --- (IDEA 9) Evento de alta importancia ---
                 self.eventos_visuales.append(('morir', pez.rect.center))
 
         # Truchas
@@ -316,22 +444,19 @@ class Ecosistema:
             for pez in self.peces:
                 if pez not in peces_muertos and trucha.rect.colliderect(pez.rect):
                     energia_ganada = trucha.comer(pez)
-                    # --- (IDEA 3) Registrar evento de comer ---
                     if energia_ganada > 0:
-                        self.eventos_visuales.append(('comer', trucha.rect.center, energia_ganada))
+                        # --- (IDEA 9) Evento de alta importancia ---
+                        self.eventos_visuales.append(('comer_depredador', trucha.rect.center, energia_ganada))
                     if pez not in peces_muertos:
                         peces_muertos.append(pez)
-                        # --- (IDEA 3) Registrar evento de morir (para el pez) ---
                         self.eventos_visuales.append(('morir', pez.rect.center))
                     break
             cria = trucha.reproducir()
             if cria:
                 nuevas_crias_truchas.append(cria)
-                # --- (IDEA 3) Registrar evento de nacer ---
                 self.eventos_visuales.append(('nacer', cria.rect.center))
             if trucha.ha_muerto():
                 truchas_muertas.append(trucha)
-                # --- (IDEA 3) Registrar evento de morir ---
                 self.eventos_visuales.append(('morir', trucha.rect.center))
 
         # Tiburones
@@ -340,22 +465,19 @@ class Ecosistema:
             for trucha in self.truchas:
                 if trucha not in truchas_muertas and tiburon.rect.colliderect(trucha.rect):
                     energia_ganada = tiburon.comer(trucha)
-                    # --- (IDEA 3) Registrar evento de comer ---
                     if energia_ganada > 0:
-                        self.eventos_visuales.append(('comer', tiburon.rect.center, energia_ganada))
+                        # --- (IDEA 9) Evento de alta importancia ---
+                        self.eventos_visuales.append(('comer_depredador', tiburon.rect.center, energia_ganada))
                     if trucha not in truchas_muertas:
                         truchas_muertas.append(trucha)
-                        # --- (IDEA 3) Registrar evento de morir (para la trucha) ---
                         self.eventos_visuales.append(('morir', trucha.rect.center))
                     break
             cria = tiburon.reproducir()
             if cria:
                 nuevas_crias_tiburones.append(cria)
-                # --- (IDEA 3) Registrar evento de nacer ---
                 self.eventos_visuales.append(('nacer', cria.rect.center))
             if tiburon.ha_muerto():
                 tiburones_muertos.append(tiburon)
-                # --- (IDEA 3) Registrar evento de morir ---
                 self.eventos_visuales.append(('morir', tiburon.rect.center))
 
         # Limpieza
@@ -380,4 +502,4 @@ class Ecosistema:
     def actualizar_movimiento_frame(self):
         todos_los_animales = self.peces + self.truchas + self.tiburones
         for animal in todos_los_animales:
-            animal.update_movimiento_frame()
+            animal.update_movimiento_frame(todos_los_animales)
