@@ -82,6 +82,10 @@ class Animal(ABC):
         
         # --- (IDEA 2) Añadir rastreador de dirección ---
         self.direccion_h = 1 # 1 = derecha, -1 = izquierda
+        # Saciedad para alimentacion adaptativa (en turnos)
+        self.saciedad = 0
+        # Entorno favorable para reproducirse (determinado en decidir_objetivo)
+        self.entorno_favorable_repro = False
         
         if self.rect.right > WIDTH: self.rect.right = WIDTH
         if self.rect.bottom > HEIGHT: self.rect.bottom = HEIGHT
@@ -99,8 +103,14 @@ class Animal(ABC):
         pass
 
     def update_decision_turno(self, listas_de_seres):
-        self.energia -= 2
+        # Gasto energetico por turno con pequeno ajuste por envejecimiento
+        coste = 2
+        if self.edad > int(self.tiempo_vida * 0.7):
+            coste += 1
+        self.energia -= coste
         self.edad += 1
+        if self.saciedad > 0:
+            self.saciedad -= 1
         self.decidir_objetivo(listas_de_seres)
 
     def steering_extra(self, vecinos):
@@ -284,11 +294,12 @@ class Pez(Animal):
     def comer(self, planta):
         if isinstance(planta, Planta):
             self.energia += planta.energia
+            self.saciedad = max(self.saciedad, 2)
             return planta.energia # Devuelve cuánta energía ganó
         return 0
 
     def reproducir(self):
-        if self.energia > 100 and self.edad > 5 and random.random() < 0.1:
+        if self.energia > 100 and self.edad > 5 and self.entorno_favorable_repro and random.random() < 0.1:
             self.energia -= 50
             cria = Pez("Pejerrey", 50, 20)
             cria.rect.topleft = self.rect.topleft
@@ -366,7 +377,8 @@ class Pez(Animal):
                 dist_min_dep = d2
                 depredador_cercano = dep
 
-        if self.energia < 70:
+        necesita_comer = (self.saciedad == 0) and (self.energia < 70 or self.energia < 0.8 * getattr(self, 'energia_max', 120))
+        if necesita_comer:
             for planta in lista_de_plantas:
                 dx = cx - planta.rect.centerx
                 dy = cy - planta.rect.centery
@@ -391,7 +403,7 @@ class Pez(Animal):
             ty = cy + vy * distancia_evade + perp[1] * (jitter * 0.1)
             self.target_x = max(0, min(tx - self.rect.width * 0.5, WIDTH - self.rect.width))
             self.target_y = max(0, min(ty - self.rect.height * 0.5, HEIGHT - self.rect.height))
-        elif self.energia < 70 and planta_cercana is not None:
+        elif necesita_comer and planta_cercana is not None:
             self.target_x = float(planta_cercana.rect.centerx)
             self.target_y = float(planta_cercana.rect.centery)
         else:
@@ -402,6 +414,17 @@ class Pez(Animal):
         self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
 
+        # Entorno de reproduccion: plantas disponibles y sin depredador inmediato
+        plantas_cercanas = 0
+        for planta in lista_de_plantas:
+            dx = cx - planta.rect.centerx
+            dy = cy - planta.rect.centery
+            if dx*dx + dy*dy <= (140*140):
+                plantas_cercanas += 1
+                if plantas_cercanas >= 2:
+                    break
+        self.entorno_favorable_repro = (plantas_cercanas >= 2) and (depredador_cercano is None)
+
 class Carnivoro(Animal):
     def __init__(self, nombre, energia, tiempo_vida, presa_key, hambre_threshold, ancho=12, alto=12):
         super().__init__(nombre, energia, tiempo_vida, ancho=ancho, alto=alto)
@@ -410,6 +433,7 @@ class Carnivoro(Animal):
         # Rango de busqueda y comportamiento de oportunidad
         self.sensor_rango = 240.0
         self.oportunidad_prob = 0.35
+        self.energia_max = 300
 
     def decidir_objetivo(self, listas_de_seres):
         lista_de_presas = listas_de_seres[self.presa_key]
@@ -418,9 +442,23 @@ class Carnivoro(Animal):
         cx, cy = self.rect.centerx, self.rect.centery
         sensor2 = self.sensor_rango * self.sensor_rango
 
-        perseguir = self.energia < self.hambre_threshold
+        # Ajuste de umbral por edad y saciedad
+        umbral = self.hambre_threshold
+        if self.edad > int(self.tiempo_vida * 0.7):
+            umbral = int(umbral * 1.1)
+        perseguir = (self.saciedad == 0) and (self.energia < umbral)
         if not perseguir and random.random() < self.oportunidad_prob:
             perseguir = True
+
+        # Riesgo (trucha evita tiburon cercano si no esta muy hambrienta)
+        riesgo_alto = False
+        if isinstance(self, Trucha):
+            for tb in listas_de_seres.get("tiburones", []):
+                dx = cx - tb.rect.centerx
+                dy = cy - tb.rect.centery
+                if dx*dx + dy*dy <= (180*180):
+                    riesgo_alto = True
+                    break
 
         if perseguir:
             for presa in lista_de_presas:
@@ -431,7 +469,7 @@ class Carnivoro(Animal):
                     distancia_minima2 = d2
                     presa_cercana = presa
 
-        if presa_cercana is not None:
+        if presa_cercana is not None and not (riesgo_alto and self.energia > umbral * 0.8):
             # Prediccion simple: apuntar donde estara la presa
             dist = distancia_minima2 ** 0.5 if distancia_minima2 < float('inf') else 0.0
             lead = min(1.2, dist / max(1.0, self.velocidad_frame * 12.0))
@@ -448,6 +486,17 @@ class Carnivoro(Animal):
         self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
 
+        # Entorno para reproduccion (presas cercanas y, en trucha, bajo riesgo)
+        presas_cercanas = 0
+        for pr in lista_de_presas:
+            dx = cx - pr.rect.centerx
+            dy = cy - pr.rect.centery
+            if dx*dx + dy*dy <= (180*180):
+                presas_cercanas += 1
+                if presas_cercanas >= 2:
+                    break
+        self.entorno_favorable_repro = (presas_cercanas >= 2) and (not (isinstance(self, Trucha) and riesgo_alto))
+
 class Trucha(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
         super().__init__(nombre, energia, tiempo_vida, presa_key="peces", hambre_threshold=80, ancho=35, alto=35)
@@ -457,11 +506,12 @@ class Trucha(Carnivoro):
         if isinstance(pez, Pez):
             energia_ganada = pez.energia // 2
             self.energia += energia_ganada
+            self.saciedad = max(self.saciedad, 2)
             return energia_ganada
         return 0
 
     def reproducir(self):
-        if self.energia > 150 and self.edad > 8 and random.random() < 0.05:
+        if self.energia > 150 and self.edad > 8 and self.entorno_favorable_repro and random.random() < 0.05:
             self.energia -= 70
             cria = Trucha("Trucha", 100, 25)
             cria.rect.topleft = self.rect.topleft
@@ -478,11 +528,12 @@ class Tiburon(Carnivoro):
         if isinstance(trucha, Trucha):
             energia_ganada = trucha.energia // 2
             self.energia += energia_ganada
+            self.saciedad = max(self.saciedad, 2)
             return energia_ganada
         return 0
 
     def reproducir(self):
-        if self.energia > 200 and self.edad > 10 and random.random() < 0.03:
+        if self.energia > 200 and self.edad > 10 and self.entorno_favorable_repro and random.random() < 0.03:
             self.energia -= 100
             cria = Tiburon("Tiburón", 200, 30)
             cria.rect.topleft = self.rect.topleft
@@ -640,3 +691,89 @@ class Ecosistema:
                         if ddx*ddx + ddy*ddy <= vecino_r2:
                             vecinos.append(o)
             a.update_movimiento_frame(vecinos)
+
+    # --- Estadisticas y probabilidad de supervivencia ---
+    def calcular_prob_supervivencia(self):
+        """Devuelve (especie_top, scores_dict) segun una heuristica simple.
+        Las claves del diccionario son: 'peces', 'truchas', 'tiburones'.
+        """
+        np_ = len(self.peces)
+        nt_ = len(self.truchas)
+        nT_ = len(self.tiburones)
+        npl_ = len(self.plantas)
+
+        def avg_energy(lst, denom):
+            if not lst:
+                return 0.0
+            s = 0.0
+            for a in lst:
+                try:
+                    s += float(a.energia)
+                except Exception:
+                    pass
+            return min(1.0, max(0.0, (s / max(1.0, len(lst) * float(denom)))))
+
+        def avg_expectancy(lst):
+            if not lst:
+                return 0.0
+            s = 0.0
+            for a in lst:
+                try:
+                    rest = max(0.0, float(a.tiempo_vida - a.edad))
+                    s += rest / max(1.0, float(a.tiempo_vida))
+                except Exception:
+                    pass
+            return min(1.0, max(0.0, s / len(lst)))
+
+        def pop_norm(n, k):
+            return n / float(n + k) if n >= 0 else 0.0
+
+        # Peces
+        peces_pop = pop_norm(np_, 10)
+        peces_energy = avg_energy(self.peces, 150)
+        peces_expect = avg_expectancy(self.peces)
+        peces_resource = min(1.0, npl_ / float(max(1, int(0.8 * max(1, np_))))) if np_ > 0 else (1.0 if npl_ > 0 else 0.0)
+        peces_risk = min(1.0, (nt_ + nT_) / float(max(1, np_)))
+        score_peces = (
+            0.25 * peces_pop +
+            0.30 * peces_energy +
+            0.20 * peces_expect +
+            0.25 * peces_resource -
+            0.15 * peces_risk
+        )
+
+        # Truchas
+        truchas_pop = pop_norm(nt_, 6)
+        truchas_energy = avg_energy(self.truchas, 240)
+        truchas_expect = avg_expectancy(self.truchas)
+        truchas_resource = min(1.0, np_ / float(max(1, 2 * max(1, nt_)))) if nt_ > 0 else (1.0 if np_ > 0 else 0.0)
+        truchas_risk = min(1.0, nT_ / float(max(1, nt_)))
+        score_truchas = (
+            0.25 * truchas_pop +
+            0.30 * truchas_energy +
+            0.20 * truchas_expect +
+            0.25 * truchas_resource -
+            0.18 * truchas_risk
+        )
+
+        # Tiburones (depredador tope: riesgo reducido)
+        tib_pop = pop_norm(nT_, 4)
+        tib_energy = avg_energy(self.tiburones, 320)
+        tib_expect = avg_expectancy(self.tiburones)
+        tib_resource = min(1.0, nt_ / float(max(1, 2 * max(1, nT_)))) if nT_ > 0 else (1.0 if nt_ > 0 else 0.0)
+        tib_risk = 0.05 if nT_ > 0 else 0.0  # casi nulo
+        score_tiburones = (
+            0.30 * tib_pop +
+            0.35 * tib_energy +
+            0.20 * tib_expect +
+            0.35 * tib_resource -
+            0.10 * tib_risk
+        )
+
+        scores = {
+            'peces': max(0.0, min(1.0, score_peces)),
+            'truchas': max(0.0, min(1.0, score_truchas)),
+            'tiburones': max(0.0, min(1.0, score_tiburones)),
+        }
+        especie_top = max(scores, key=scores.get) if scores else 'peces'
+        return especie_top, scores

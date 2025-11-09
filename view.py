@@ -139,6 +139,12 @@ class Vista:
         # --- (IDEA 9) Variable de Screen Shake ---
         self.screen_shake = 0
 
+        # --- Estadisticas (UI) ---
+        self.turn_progress = 0.0  # avance hacia el siguiente turno (0..1)
+        self.sim_h = 0
+        self.sim_m = 0
+        self.top_species = None
+
 
     def _crear_fondo_estatico(self, width, height):
         fondo = pygame.Surface((width, height))
@@ -350,6 +356,44 @@ class Vista:
                 
             self._dibujar_boton(self.btn_stop, COLOR_STOP, "Detener", offset=offset)
 
+        # --- Estadisticas en tiempo real ---
+        # Progreso del turno (barra a la derecha sin invadir botones)
+        try:
+            bar_w = 150
+            bar_h = 8
+            bar_x = self.width - 650 + offset[0]
+            bar_y = 30 + offset[1]
+            pygame.draw.rect(self.screen, (220,220,220), (bar_x, bar_y, bar_w, bar_h), border_radius=4)
+            p = max(0.0, min(1.0, float(self.turn_progress)))
+            fill_w = int(bar_w * p)
+            if fill_w > 0:
+                pygame.draw.rect(self.screen, (80,180,80), (bar_x, bar_y, fill_w, bar_h), border_radius=4)
+            lbl = self.font.render("Turno", True, NEGRO_UI)
+            self.screen.blit(lbl, (bar_x - 55, bar_y - 6))
+        except Exception:
+            pass
+
+        # Probabilidad de supervivencia (fila inferior izquierda del panel)
+        try:
+            top = self.top_species or "?"
+            if top == 'peces': txt = 'Peces'
+            elif top == 'truchas': txt = 'Truchas'
+            elif top == 'tiburones': txt = 'Tiburones'
+            else: txt = str(top)
+            surv = self.font.render(f"Top: {txt}", True, NEGRO_UI)
+            self.screen.blit(surv, (10 + offset[0], 24 + offset[1]))
+        except Exception:
+            pass
+
+        # Tiempo de simulacion HH:MM (misma fila)
+        try:
+            hh = int(self.sim_h)
+            mm = int(self.sim_m)
+            timg = self.font.render(f"Tiempo: {hh:02d}:{mm:02d}", True, NEGRO_UI)
+            self.screen.blit(timg, (200 + offset[0], 24 + offset[1]))
+        except Exception:
+            pass
+
     def gestionar_eventos(self, eventos):
         if not self.font_particula:
             eventos.clear()
@@ -434,3 +478,17 @@ class Vista:
 
     def cerrar(self):
         pygame.quit()
+
+    # --- Setters para estadisticas ---
+    def update_stats(self, turn_progress, sim_minutes, top_species):
+        try:
+            self.turn_progress = float(turn_progress)
+        except Exception:
+            self.turn_progress = 0.0
+        try:
+            sim_minutes = max(0, int(sim_minutes or 0))
+        except Exception:
+            sim_minutes = 0
+        self.sim_h = sim_minutes // 60
+        self.sim_m = sim_minutes % 60
+        self.top_species = top_species

@@ -13,6 +13,7 @@ def main():
     vista = Vista(WIDTH, HEIGHT)
     clock = pygame.time.Clock()
     proximo_turno_ia = pygame.time.get_ticks() + TURNO_DURACION_MS
+    turnos_ejecutados = 0
 
     running = True
     sim_running = False
@@ -56,10 +57,28 @@ def main():
         if sim_running and not sim_paused and (ahora >= proximo_turno_ia):
             ecosistema.simular_turno_ia()
             proximo_turno_ia = ahora + TURNO_DURACION_MS
+            turnos_ejecutados += 1
 
         # Movimiento continuo
         if sim_running and not sim_paused:
             ecosistema.actualizar_movimiento_frame()
+
+        # Stats de turno (progreso hacia el siguiente turno)
+        if sim_running and not sim_paused:
+            # progreso 0..1 del tiempo entre turnos
+            restante = max(0, proximo_turno_ia - ahora)
+            prog = 1.0 - min(1.0, restante / float(TURNO_DURACION_MS))
+        else:
+            prog = 0.0
+
+        # Probabilidad de supervivencia (especie top)
+        try:
+            top, _scores = ecosistema.calcular_prob_supervivencia()
+        except Exception:
+            top = None
+
+        # Actualizar UI con estadisticas (1 turno ~= 1 minuto sim)
+        vista.update_stats(prog, turnos_ejecutados, top)
 
         # Render
         vista.dibujar_ecosistema(ecosistema)
