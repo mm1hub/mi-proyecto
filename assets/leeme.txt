@@ -1,0 +1,3 @@
+# leeme.txt
+
+Esta carpeta es para los archivos externos, imagenes, sonidos, etc...
