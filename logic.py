@@ -553,6 +553,42 @@ class Trucha(Carnivoro):
             return cria
         return None
 
+    def decidir_objetivo(self, listas_de_seres):
+        # Huir de tiburones cercanos con vector de escape
+        cx, cy = self.rect.centerx, self.rect.centery
+        tiburones = listas_de_seres.get("tiburones", [])
+        peligro_r2 = (230.0 * 230.0)
+        tib_mas_cercano = None
+        dist_min = float('inf')
+        for tb in tiburones:
+            dx = cx - tb.rect.centerx
+            dy = cy - tb.rect.centery
+            d2 = dx*dx + dy*dy
+            if d2 < peligro_r2 and d2 < dist_min:
+                dist_min = d2
+                tib_mas_cercano = tb
+        if tib_mas_cercano is not None:
+            # Fuga vectorial con un leve componente perpendicular para evitar trayectorias rectas
+            vx = cx - tib_mas_cercano.rect.centerx
+            vy = cy - tib_mas_cercano.rect.centery
+            mag2 = vx*vx + vy*vy
+            if mag2 > 0:
+                mag = mag2 ** 0.5
+                vx /= mag
+                vy /= mag
+            flee = 140.0
+            jitter = random.uniform(-18.0, 18.0)
+            perp = (-vy, vx)
+            tx = cx + vx * flee + perp[0] * (jitter * 0.12)
+            ty = cy + vy * flee + perp[1] * (jitter * 0.12)
+            self.target_x = max(0, min(tx - self.rect.width * 0.5, WIDTH - self.rect.width))
+            self.target_y = max(0, min(ty - self.rect.height * 0.5, HEIGHT - self.rect.height))
+            # Entorno de reproduccion no favorable si hay tiburon cerca
+            self.entorno_favorable_repro = False
+            return
+        # Si no hay peligro, usar el comportamiento por defecto (cazar peces, patrullar, etc.)
+        super().decidir_objetivo(listas_de_seres)
+
 class Tiburon(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
         super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=45, alto=45)
@@ -560,9 +596,9 @@ class Tiburon(Carnivoro):
         # Tiburón con radar más amplio
         self.sensor_rango = 360.0
 
-    def comer(self, trucha):
-        if isinstance(trucha, Trucha):
-            energia_ganada = trucha.energia // 2
+    def comer(self, presa):
+        if isinstance(presa, (Trucha, Pez)):
+            energia_ganada = presa.energia // 2
             self.energia += energia_ganada
             self.saciedad = max(self.saciedad, 2)
             return energia_ganada
@@ -575,6 +611,64 @@ class Tiburon(Carnivoro):
             cria.rect.topleft = self.rect.topleft
             return cria
         return None
+
+    def decidir_objetivo(self, listas_de_seres):
+        # Perseguir tanto truchas como peces de forma natural
+        presas = listas_de_seres.get("truchas", []) + listas_de_seres.get("peces", [])
+        cx, cy = self.rect.centerx, self.rect.centery
+        sensor2 = self.sensor_rango * self.sensor_rango
+        presa_cercana = None
+        dmin2 = float('inf')
+
+        # Umbral de hambre y oportunidad
+        umbral = self.hambre_threshold
+        if self.edad > int(self.tiempo_vida * 0.7):
+            umbral = int(umbral * 1.1)
+        perseguir = (self.saciedad == 0) and (self.energia < umbral)
+        if not perseguir and random.random() < self.oportunidad_prob:
+            perseguir = True
+
+        if perseguir:
+            for pr in presas:
+                dx = cx - pr.rect.centerx
+                dy = cy - pr.rect.centery
+                d2 = dx*dx + dy*dy
+                if d2 < sensor2 and d2 < dmin2:
+                    dmin2 = d2
+                    presa_cercana = pr
+
+        if presa_cercana is not None:
+            # Predicción simple hacia la posición futura de la presa
+            dist = dmin2 ** 0.5
+            lead = min(1.2, dist / max(1.0, self.velocidad_frame * 12.0))
+            pred_x = presa_cercana.rect.centerx + presa_cercana.vel_x * lead * 12.0
+            pred_y = presa_cercana.rect.centery + presa_cercana.vel_y * lead * 12.0
+            self.target_x = float(pred_x)
+            self.target_y = float(pred_y)
+        else:
+            # Patrulla hacia zonas con más actividad (presas agrupadas)
+            sum_x = 0.0
+            sum_y = 0.0
+            cnt = 0
+            cluster_r2 = (240.0 * 240.0)
+            for pr in presas:
+                dx = cx - pr.rect.centerx
+                dy = cy - pr.rect.centery
+                d2 = dx*dx + dy*dy
+                if d2 <= cluster_r2:
+                    sum_x += pr.rect.centerx
+                    sum_y += pr.rect.centery
+                    cnt += 1
+            if cnt >= 2:
+                self.target_x = float(sum_x / cnt)
+                self.target_y = float(sum_y / cnt)
+            else:
+                if abs(self.rect.x - self.target_x) < 5 and abs(self.rect.y - self.target_y) < 5:
+                    self.target_x = self.rect.x + random.randint(-50, 50)
+                    self.target_y = self.rect.y + random.randint(-50, 50)
+
+        self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
+        self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
 
 class Ecosistema:
     def __init__(self):
@@ -652,6 +746,8 @@ class Ecosistema:
         # Tiburones
         for tiburon in self.tiburones:
             tiburon.update_decision_turno(listas_de_seres)
+            # Intentar comer trucha primero, luego pez
+            comio = False
             for trucha in self.truchas:
                 if trucha not in truchas_muertas and tiburon.rect.colliderect(trucha.rect):
                     energia_ganada = tiburon.comer(trucha)
@@ -661,7 +757,18 @@ class Ecosistema:
                     if trucha not in truchas_muertas:
                         truchas_muertas.append(trucha)
                         self.eventos_visuales.append(('morir', trucha.rect.center))
+                    comio = True
                     break
+            if not comio:
+                for pez in self.peces:
+                    if pez not in peces_muertos and tiburon.rect.colliderect(pez.rect):
+                        energia_ganada = tiburon.comer(pez)
+                        if energia_ganada > 0:
+                            self.eventos_visuales.append(('comer_depredador', tiburon.rect.center, energia_ganada))
+                        if pez not in peces_muertos:
+                            peces_muertos.append(pez)
+                            self.eventos_visuales.append(('morir', pez.rect.center))
+                        break
             cria = tiburon.reproducir()
             if cria:
                 nuevas_crias_tiburones.append(cria)
