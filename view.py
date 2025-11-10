@@ -110,6 +110,7 @@ class Vista:
         pygame.display.set_caption("Simulador de Ecosistema Acuático")
         self.assets = self.cargar_assets_flexible()
         self.sonidos = self._cargar_sonidos()
+        self.musica_activa = False
         
         self.fondo_superficie = self._crear_fondo_estatico(width, height)
         
@@ -265,6 +266,31 @@ class Vista:
         else:
             print("Advertencia: no se pudo cargar ningún sonido; audio deshabilitado.")
         return sonidos
+
+    def iniciar_musica_fondo(self, volumen=5.0):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        ruta_musica = os.path.join(base_dir, 'assets', 'musica_fondo_mar.mp3')
+        if not os.path.isfile(ruta_musica):
+            return
+
+        if self.musica_activa and pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+            pygame.mixer.music.set_volume(max(0.0, min(1.0, volumen)))
+            return
+
+        if not pygame.mixer.get_init():
+            try:
+                pygame.mixer.init()
+            except Exception as exc:
+                print(f"No se pudo inicializar mixer para la música de fondo: {exc}")
+                return
+
+        try:
+            pygame.mixer.music.load(ruta_musica)
+            pygame.mixer.music.set_volume(max(0.0, min(1.0, volumen)))
+            pygame.mixer.music.play(loops=-1)
+            self.musica_activa = True
+        except Exception as exc:
+            print(f"Error reproduciendo música de fondo: {exc}")
 
     def reproducir_sonido(self, clave, volumen=0.65):
         """Reproduce el sonido asociado a la clave si fue cargado."""
@@ -659,6 +685,12 @@ class Vista:
         return None
 
     def cerrar(self):
+        if pygame.mixer.get_init():
+            try:
+                pygame.mixer.music.stop()
+                self.musica_activa = False
+            except Exception:
+                pass
         pygame.quit()
 
     # --- Setters para estadísticas (Implementado) ---

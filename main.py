@@ -11,6 +11,7 @@ def main():
     ecosistema.poblar_inicial() # Ya no necesitamos try/except para la "ñ"
 
     vista = Vista(WIDTH, HEIGHT)
+    vista.iniciar_musica_fondo()
     clock = pygame.time.Clock()
     proximo_turno_ia = pygame.time.get_ticks() + TURNO_DURACION_MS
     turnos_ejecutados = 0
