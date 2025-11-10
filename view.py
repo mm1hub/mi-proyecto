@@ -16,6 +16,16 @@ from logic import (
     WIDTH, HEIGHT # Importar dimensiones
 )
 
+SONIDOS_MAP = {
+    'comer_pez': 'comer_planta.mp3',
+    'comer_depredador': 'comer.mp3',
+    'morir': 'morir.mp3',
+    'start': 'comer.mp3',
+    'pause': 'morir.mp3',
+    'resume': 'comer_planta.mp3',
+    'stop': 'morir.mp3',
+}
+
 # --- (IDEA 3) Clase para Efectos Visuales ---
 class Particula:
     """Gestiona un texto flotante para eventos (comer, nacer, morir)."""
@@ -99,6 +109,7 @@ class Vista:
         self.screen = pygame.display.set_mode((width, height))
         pygame.display.set_caption("Simulador de Ecosistema Acuático")
         self.assets = self.cargar_assets_flexible()
+        self.sonidos = self._cargar_sonidos()
         
         self.fondo_superficie = self._crear_fondo_estatico(width, height)
         
@@ -217,6 +228,56 @@ class Vista:
         else:
             print(f"Advertencia: no se cargó ninguna imagen desde '{assets_dir}'. Se usarán formas básicas.")
         return assets
+
+    def _cargar_sonidos(self):
+        """Carga los sonidos disponibles y prepara el mixer si es necesario."""
+        sonidos = {}
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        assets_dir = os.path.join(base_dir, 'assets')
+
+        if not os.path.isdir(assets_dir):
+            return sonidos
+
+        if not pygame.mixer.get_init():
+            try:
+                pygame.mixer.init()
+            except Exception as exc:
+                print(f"Audio deshabilitado (no se pudo inicializar mixer): {exc}")
+                return sonidos
+
+        cache = {}
+        for key, nombre in SONIDOS_MAP.items():
+            ruta = os.path.join(assets_dir, nombre)
+            if not os.path.isfile(ruta):
+                continue
+            if nombre in cache:
+                sonidos[key] = cache[nombre]
+                continue
+            try:
+                sonido = pygame.mixer.Sound(ruta)
+                cache[nombre] = sonido
+                sonidos[key] = sonido
+            except Exception as exc:
+                print(f"Error cargando sonido {ruta}: {exc}")
+
+        if sonidos:
+            print(f"Sonidos cargados: {sorted(sonidos.keys())}")
+        else:
+            print("Advertencia: no se pudo cargar ningún sonido; audio deshabilitado.")
+        return sonidos
+
+    def reproducir_sonido(self, clave, volumen=0.65):
+        """Reproduce el sonido asociado a la clave si fue cargado."""
+        if not self.sonidos:
+            return
+        sonido = self.sonidos.get(clave)
+        if not sonido:
+            return
+        try:
+            sonido.set_volume(max(0.0, min(1.0, volumen)))
+            sonido.play()
+        except Exception:
+            pass
 
     def _dibujar_boton(self, rect, color_base, texto, color_texto=COLOR_TEXTO_BTN, offset=(0,0), hover_color=None):
         """Dibuja un botón con offset y efecto hover opcional."""
@@ -513,11 +574,13 @@ class Vista:
                 if tipo == 'comer_pez':
                     valor = evento[2]
                     self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER))
+                    self.reproducir_sonido('comer_pez')
                 
                 elif tipo == 'comer_depredador':
                     valor = evento[2]
                     self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER, vida=60))
                     self.screen_shake = 10
+                    self.reproducir_sonido('comer_depredador')
                 
                 elif tipo == 'nacer':
                     self.particulas.append(Particula("❤️", pos_adj, COLOR_NACER, vida=60))
@@ -525,6 +588,7 @@ class Vista:
                 elif tipo == 'morir':
                     self.particulas.append(Particula("💀", pos_adj, COLOR_MORIR, vida=60))
                     self.screen_shake = 8
+                    self.reproducir_sonido('morir')
             
             except Exception as e:
                 print(f"Error procesando evento {evento}: {e}")

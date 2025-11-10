@@ -41,13 +41,16 @@ def main():
                     sim_running = True
                     sim_paused = False
                     proximo_turno_ia = pygame.time.get_ticks() + TURNO_DURACION_MS
+                    vista.reproducir_sonido('start')
                 elif accion == 'pause' and sim_running:
                     sim_paused = not sim_paused
+                    vista.reproducir_sonido('pause' if sim_paused else 'resume')
                 elif accion == 'stop' and sim_running:
                     # Reinicia a un ecosistema vacío; podrás reconfigurar y comenzar de nuevo
                     ecosistema = Ecosistema()
                     sim_running = False
                     sim_paused = False
+                    vista.reproducir_sonido('stop')
 
         # Pasar estado a la vista
         vista.set_estado_simulacion(sim_running, sim_paused)
