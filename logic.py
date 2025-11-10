@@ -6,7 +6,7 @@ from pygame import Color # <-- Para efecto hover y 'lerp'
 # ---------------------------------
 # CONFIGURACIÓN GLOBAL (compartida)
 # ---------------------------------
-WIDTH, HEIGHT = 1280, 768
+WIDTH, HEIGHT = 1024, 768
 FPS = 60 # <-- CAMBIO: 30 a 60 FPS para mayor fluidez
 TURNO_DURACION_MS = 1000  # Un turno de IA cada 1 s
 GRID_CELDA = 64
