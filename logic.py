@@ -292,6 +292,8 @@ class Pez(Animal):
     def __init__(self, nombre, energia, tiempo_vida):
         super().__init__(nombre, energia, tiempo_vida, ancho=20, alto=20)
         self.velocidad_frame = random.uniform(2.0, 4.0)
+        # Definir un máximo de energía razonable para decisiones más coherentes
+        self.energia_max = 120
 
     def comer(self, planta):
         if isinstance(planta, Planta):
@@ -363,8 +365,9 @@ class Pez(Animal):
     def decidir_objetivo(self, listas_de_seres):
         lista_depredadores = listas_de_seres["truchas"] + listas_de_seres["tiburones"]
         lista_de_plantas = listas_de_seres["plantas"]
-        rango_dep2 = 170 * 170
-        rango_pl2 = 110 * 110
+        # Aumentamos el radar: peces detectan depredadores y plantas desde más lejos
+        rango_dep2 = 240 * 240
+        rango_pl2 = 180 * 180
         depredador_cercano = None
         planta_cercana = None
         dist_min_dep = rango_dep2
@@ -413,6 +416,11 @@ class Pez(Animal):
                 self.target_x = self.rect.x + random.randint(-70, 70)
                 self.target_y = self.rect.y + random.randint(-70, 70)
 
+        # Mejora: forrajeo oportunista si hay plantas muy cerca aunque no tenga hambre
+        if not necesita_comer and planta_cercana is not None and dist_min_pl < (90*90):
+            self.target_x = float(planta_cercana.rect.centerx)
+            self.target_y = float(planta_cercana.rect.centery)
+
         self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
 
@@ -433,7 +441,8 @@ class Carnivoro(Animal):
         self.presa_key = presa_key
         self.hambre_threshold = hambre_threshold
         # Rango de busqueda y comportamiento de oportunidad
-        self.sensor_rango = 240.0
+        # Aumentamos el sensor por defecto de carnívoros
+        self.sensor_rango = 320.0
         self.oportunidad_prob = 0.35
         self.energia_max = 300
 
@@ -458,7 +467,8 @@ class Carnivoro(Animal):
             for tb in listas_de_seres.get("tiburones", []):
                 dx = cx - tb.rect.centerx
                 dy = cy - tb.rect.centery
-                if dx*dx + dy*dy <= (180*180):
+                # Aumentamos el radar de riesgo de tiburón
+                if dx*dx + dy*dy <= (230*230):
                     riesgo_alto = True
                     break
 
@@ -480,10 +490,33 @@ class Carnivoro(Animal):
             self.target_x = float(pred_x)
             self.target_y = float(pred_y)
         else:
-            # Patrullar
-            if abs(self.rect.x - self.target_x) < 5 and abs(self.rect.y - self.target_y) < 5:
-                self.target_x = self.rect.x + random.randint(-50, 50)
-                self.target_y = self.rect.y + random.randint(-50, 50)
+            # Mejora: patrullaje inteligente hacia zonas con mayor densidad de presas
+            if not perseguir:
+                sum_x = 0.0
+                sum_y = 0.0
+                cnt = 0
+                cluster_r2 = (220.0 * 220.0)
+                for pr in lista_de_presas:
+                    dx = cx - pr.rect.centerx
+                    dy = cy - pr.rect.centery
+                    d2 = dx*dx + dy*dy
+                    if d2 <= cluster_r2:
+                        sum_x += pr.rect.centerx
+                        sum_y += pr.rect.centery
+                        cnt += 1
+                if cnt >= 2:
+                    self.target_x = float(sum_x / cnt)
+                    self.target_y = float(sum_y / cnt)
+                else:
+                    # Patrulla aleatoria si no hay cluster
+                    if abs(self.rect.x - self.target_x) < 5 and abs(self.rect.y - self.target_y) < 5:
+                        self.target_x = self.rect.x + random.randint(-50, 50)
+                        self.target_y = self.rect.y + random.randint(-50, 50)
+            else:
+                # Patrulla aleatoria cuando sí patrulla por hambre pero sin presa a la vista
+                if abs(self.rect.x - self.target_x) < 5 and abs(self.rect.y - self.target_y) < 5:
+                    self.target_x = self.rect.x + random.randint(-50, 50)
+                    self.target_y = self.rect.y + random.randint(-50, 50)
 
         self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
@@ -524,7 +557,8 @@ class Tiburon(Carnivoro):
     def __init__(self, nombre, energia, tiempo_vida):
         super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=45, alto=45)
         self.velocidad_frame = random.uniform(1.0, 3.0)
-        self.sensor_rango = 280.0
+        # Tiburón con radar más amplio
+        self.sensor_rango = 360.0
 
     def comer(self, trucha):
         if isinstance(trucha, Trucha):
@@ -652,7 +686,8 @@ class Ecosistema:
         self.truchas.extend(nuevas_crias_truchas)
         self.tiburones.extend(nuevas_crias_tiburones)
 
-        if random.random() < 0.8:
+        # Reducimos la velocidad de reproducción de las algas
+        if random.random() < 0.25:
             self.plantas.append(Planta("Alga", 20))
 
     def actualizar_movimiento_frame(self):
@@ -667,8 +702,8 @@ class Ecosistema:
             cy = int(a.pos_y) // c
             celdas.setdefault((cx, cy), []).append(a)
 
-        # Radio maximo para vecinos (para separar y boids)
-        vecino_r = 96.0
+        # Radio maximo para vecinos (para separar y boids) – radar ampliado
+        vecino_r = 128.0
         vecino_r2 = vecino_r * vecino_r
 
         for a in todos:

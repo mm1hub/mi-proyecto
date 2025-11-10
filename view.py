@@ -103,29 +103,41 @@ class Vista:
         
         self.fondo_superficie = self._crear_fondo_estatico(width, height)
 
-        # Ajuste de fuentes para apariencia profesional
+        # Fuentes (robustas y sin sobreescribir valores previos)
         try:
-            self.font = pygame.font.SysFont('Segoe UI', 20)
+            self.font = pygame.font.SysFont('Segoe UI', 22)
             self.font_small = pygame.font.SysFont('Segoe UI', 16)
-            self.font_bold = pygame.font.SysFont('Segoe UI Semibold', 20)
+            self.font_bold = pygame.font.SysFont('Segoe UI Semibold', 22)
+            self.font_title = pygame.font.SysFont('Comic Sans MS', 24, bold=True)
         except Exception:
-            # Fallbacks genericos
-            self.font = pygame.font.SysFont(None, 20)
+            # Fallbacks genéricos
+            self.font = pygame.font.SysFont(None, 22)
             self.font_small = pygame.font.SysFont(None, 16)
-            self.font_bold = pygame.font.SysFont(None, 20)
-        
+            self.font_bold = pygame.font.SysFont(None, 22)
+            self.font_title = pygame.font.SysFont(None, 24)
+
         try:
-            self.font = pygame.font.SysFont(None, 30)
             self.font_overlay = pygame.font.SysFont(None, 100)
             self.font_particula = pygame.font.SysFont('Arial', 18, bold=True)
-        except:
-            print("Warning: No se pudo cargar la fuente. La UI no se mostrará.")
-            self.font = None
-            self.font_overlay = None
-            self.font_particula = None
+        except Exception:
+            print("Warning: No se pudo cargar alguna de las fuentes secundarias.")
+            self.font_overlay = pygame.font.SysFont(None, 100)
+            self.font_particula = pygame.font.SysFont(None, 18)
 
         # Altura del panel superior (HUD) ampliada para evitar solapes
         self.top_bar_h = 56
+        # Expandimos la ventana para que el simulador no quede cubierto por el HUD
+        try:
+            self.screen = pygame.display.set_mode((width, height + self.top_bar_h))
+        except Exception:
+            pass
+        self.height_total = height + self.top_bar_h
+        self.sim_offset_y = self.top_bar_h
+
+        # Offset actual aplicado (p.ej., por screen shake) para sincronizar clics
+        self.last_offset = (0, 0)
+        # Opciones (casillas)
+        self.opts = {'burbujas': True, 'sacudida': True, 'texturas': True, 'particulas': True}
 
         self.sim_running = False
         self.sim_paused = False
@@ -147,6 +159,21 @@ class Vista:
             minus = pygame.Rect(150, y, 30, row_h)
             plus = pygame.Rect(150 + 120, y, 30, row_h)
             self.cfg_rows.append({'label': label, 'key': key, 'minus': minus, 'plus': plus, 'y': y, 'h': row_h})
+
+        # Casillas de opciones (checkboxes) bajo los contadores
+        self.cb_rows = []
+        cb_h = 22
+        cb_gap = 28
+        cb_start_y = base_y + len(labels) * (row_h + 6) + 16
+        cols = [10, 220]
+        cb_items = [('Burbujas','burbujas'), ('Vibración','sacudida'), ('Texturas','texturas'), ('Partículas','particulas')]
+        for i, (lbl, key) in enumerate(cb_items):
+            col = i % 2
+            row = i // 2
+            x = cols[col]
+            y = cb_start_y + row * cb_gap
+            rect = pygame.Rect(x, y, cb_h, cb_h)
+            self.cb_rows.append({'label': lbl, 'key': key, 'rect': rect})
 
         self.particulas = []
         # --- (IDEA 10) Lista para burbujas ---
@@ -227,16 +254,32 @@ class Vista:
             pos_texto = img_texto.get_rect(center=rect_con_offset.center)
             self.screen.blit(img_texto, pos_texto)
 
+    def _dibujar_checkbox(self, rect, checked, label, offset=(0,0)):
+        rect2 = rect.move(offset)
+        # Caja
+        pygame.draw.rect(self.screen, (245,245,245), rect2, border_radius=4)
+        pygame.draw.rect(self.screen, (120,120,120), rect2, width=1, border_radius=4)
+        # Marca
+        if checked:
+            x, y, w, h = rect2.x, rect2.y, rect2.width, rect2.height
+            pygame.draw.line(self.screen, (40,160,80), (x+4, y+h//2), (x+w//2-1, y+h-5), 3)
+            pygame.draw.line(self.screen, (40,160,80), (x+w//2-1, y+h-5), (x+w-4, y+4), 3)
+        # Etiqueta
+        if self.font:
+            lbl_img = self.font.render(label, True, NEGRO_UI)
+            self.screen.blit(lbl_img, (rect2.right + 8, rect2.y - 2))
+
     def dibujar_overlay_pausa(self, offset=(0,0)):
         if not self.font_overlay:
             return
-        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        sw, sh = self.screen.get_size()
+        overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 128))
         # --- (IDEA 9) Aplicar offset ---
         self.screen.blit(overlay, offset)
         
         img_pausa = self.font_overlay.render("PAUSA", True, BLANCO)
-        pos_pausa = img_pausa.get_rect(center=(self.width / 2 + offset[0], self.height / 2 + offset[1]))
+        pos_pausa = img_pausa.get_rect(center=(sw / 2 + offset[0], sh / 2 + offset[1]))
         self.screen.blit(img_pausa, pos_pausa)
 
 
@@ -244,12 +287,14 @@ class Vista:
         
         # --- (IDEA 9) Calcular Screen Shake ---
         shake_offset = (0, 0)
-        if self.screen_shake > 0:
+        if self.screen_shake > 0 and self.opts.get('sacudida', True):
             self.screen_shake -= 1
             shake_offset = (random.randint(-4, 4), random.randint(-4, 4))
+        elif not self.opts.get('sacudida', True):
+            self.screen_shake = 0
             
-        # Dibujar el fondo con el offset
-        self.screen.blit(self.fondo_superficie, shake_offset)
+        # Dibujar el fondo con el offset, desplazado bajo el HUD
+        self.screen.blit(self.fondo_superficie, (shake_offset[0], self.sim_offset_y + shake_offset[1]))
 
         # --- (IDEA 10) Actualizar y crear burbujas ---
         # Actualizar burbujas existentes
@@ -260,7 +305,7 @@ class Vista:
                 self.burbujas.pop(i)
         
         # Crear nuevas burbujas aleatoriamente (solo si no está pausado)
-        if self.sim_running and not self.sim_paused:
+        if self.sim_running and not self.sim_paused and self.opts.get('burbujas', True):
             animales_que_respiran = ecosistema.peces + ecosistema.truchas
             if random.random() < 0.05: # Chance de 5% por frame
                 if animales_que_respiran:
@@ -269,12 +314,13 @@ class Vista:
 
         # --- (IDEA 1) Z-Sorting (Falso 3D) ---
         # 1. Crear una lista única con todas las entidades
+        burb = self.burbujas if self.opts.get('burbujas', True) else []
         todas_las_entidades = (
             ecosistema.plantas + 
             ecosistema.peces + 
             ecosistema.truchas + 
             ecosistema.tiburones +
-            self.burbujas # Dibujar burbujas junto con todo lo demás
+            burb
         )
         
         # 2. Ordenar la lista por la parte inferior (Y)
@@ -286,21 +332,21 @@ class Vista:
             # Calcular el rect de dibujo con el offset
             # (El rect de burbuja ya está en su centro, blit usará su topleft)
             if isinstance(entidad, Burbuja):
-                entidad.dibujar(self.screen, shake_offset)
+                entidad.dibujar(self.screen, (shake_offset[0], shake_offset[1] + self.sim_offset_y))
                 continue # Saltar al siguiente
                 
-            rect_dibujo = entidad.rect.move(shake_offset)
+            rect_dibujo = entidad.rect.move(shake_offset).move(0, self.sim_offset_y)
 
             # --- DIBUJO POLIMÓRFICO ---
             
             if isinstance(entidad, Planta):
-                if 'alga' in self.assets:
+                if self.opts.get('texturas', True) and 'alga' in self.assets:
                     self.screen.blit(self.assets['alga'], rect_dibujo)
                 else:
                     pygame.draw.circle(self.screen, VERDE, rect_dibujo.center, 7)
             
             elif isinstance(entidad, Pez):
-                if 'pez' in self.assets:
+                if self.opts.get('texturas', True) and 'pez' in self.assets:
                     sprite = self.assets['pez']
                     if entidad.direccion_h == -1:
                         sprite = pygame.transform.flip(sprite, True, False)
@@ -309,7 +355,7 @@ class Vista:
                     pygame.draw.circle(self.screen, AZUL, rect_dibujo.center, 10)
             
             elif isinstance(entidad, Trucha):
-                if 'trucha' in self.assets:
+                if self.opts.get('texturas', True) and 'trucha' in self.assets:
                     sprite = self.assets['trucha']
                     if entidad.direccion_h == -1:
                         sprite = pygame.transform.flip(sprite, True, False)
@@ -318,7 +364,7 @@ class Vista:
                     pygame.draw.circle(self.screen, MARRON, rect_dibujo.center, 17)
             
             elif isinstance(entidad, Tiburon):
-                if 'tiburon' in self.assets:
+                if self.opts.get('texturas', True) and 'tiburon' in self.assets:
                     sprite = self.assets['tiburon']
                     if entidad.direccion_h == -1:
                         sprite = pygame.transform.flip(sprite, True, False)
@@ -338,6 +384,10 @@ class Vista:
             self.dibujar_overlay_pausa(shake_offset)
 
         pygame.display.flip()
+        # Guardar offset aplicado para sincronizar detección de clics
+        self.last_offset = shake_offset
+        # Guardar el último offset usado para que las colisiones de UI correspondan
+        self.last_offset = shake_offset
 
     def dibujar_ui(self, ecosistema, offset=(0,0)):
         if not self.font:
@@ -346,7 +396,7 @@ class Vista:
         # --- (IDEA 9) Aplicar offset al panel ---
         panel_rect = pygame.Rect(0, 0, self.width, self.top_bar_h).move(offset)
         panel_ui = pygame.Surface((self.width, self.top_bar_h), pygame.SRCALPHA)
-        panel_ui.fill((245, 248, 250, 210))
+        panel_ui.fill((245, 248, 250, 255))
         self.screen.blit(panel_ui, panel_rect.topleft)
         # Línea inferior sutil del HUD
         pygame.draw.line(self.screen, (200, 200, 200), (0 + offset[0], self.top_bar_h + offset[1]), (self.width + offset[0], self.top_bar_h + offset[1]))
@@ -368,6 +418,24 @@ class Vista:
             
         # Panel de configuración previa
         if not self.sim_running:
+            # Tarjeta de fondo para el panel de configuración/opciones
+            try:
+                if self.cfg_rows:
+                    cfg_y0 = self.cfg_rows[0]['y'] - 8 + offset[1]
+                    if getattr(self, 'cb_rows', []):
+                        cb_last = self.cb_rows[-1]['rect']
+                        cfg_y1 = cb_last.bottom + 12 + offset[1]
+                    else:
+                        last_row = self.cfg_rows[-1]
+                        cfg_y1 = last_row['y'] + last_row['h'] + 12 + offset[1]
+                    card_w = 380
+                    card_rect = pygame.Rect(6 + offset[0], cfg_y0, card_w, cfg_y1 - cfg_y0)
+                    card = pygame.Surface((card_rect.width, card_rect.height), pygame.SRCALPHA)
+                    card.fill((255, 255, 255, 200))
+                    self.screen.blit(card, card_rect.topleft)
+                    pygame.draw.rect(self.screen, (210,210,210), card_rect, width=1, border_radius=8)
+            except Exception:
+                pass
             for row in self.cfg_rows:
                 # --- (IDEA 9) Aplicar offset a todo ---
                 lbl_img = self.font.render(row['label']+":", True, NEGRO_UI)
@@ -380,6 +448,11 @@ class Vista:
                 val_img = self.font.render(str(val), True, NEGRO_UI)
                 val_rect = val_img.get_rect(center=(row['minus'].right + 60 + offset[0], row['minus'].centery + offset[1]))
                 self.screen.blit(val_img, val_rect)
+
+            # Opciones (casillas)
+            for cb in self.cb_rows:
+                checked = bool(self.opts.get(cb['key'], False))
+                self._dibujar_checkbox(cb['rect'], checked, cb['label'], offset)
 
         # Botones de control (Lado derecho)
         if not self.sim_running:
@@ -450,7 +523,7 @@ class Vista:
             pass
 
     def gestionar_eventos(self, eventos):
-        if not self.font_particula:
+        if not self.font_particula or not self.opts.get('particulas', True):
             eventos.clear()
             return
 
@@ -494,7 +567,7 @@ class Vista:
                 self.particulas.pop(i)
             else:
                 # --- (IDEA 9) Pasar offset al dibujar ---
-                p.dibujar(self.screen, self.font_particula, offset)
+                p.dibujar(self.screen, self.font_particula, (offset[0], offset[1] + self.sim_offset_y))
 
     def set_estado_simulacion(self, sim_running, sim_paused):
         self.sim_running = sim_running
@@ -509,25 +582,42 @@ class Vista:
         }
 
     def handle_click(self, pos):
-        # El click no necesita offset, porque 'pos' es la posición real del mouse
+        # Alinear detección de clics con el offset visual actual
+        offset = getattr(self, 'last_offset', (0, 0))
         if not self.sim_running:
             for row in self.cfg_rows:
-                if row['minus'].collidepoint(pos):
+                if row['minus'].move(offset).collidepoint(pos):
                     k = row['key']
                     self.cfg[k] = max(0, self.cfg[k] - 1)
                     return 'cfg_changed'
-                if row['plus'].collidepoint(pos):
+                if row['plus'].move(offset).collidepoint(pos):
                     k = row['key']
                     self.cfg[k] = min(200, self.cfg[k] + 1)
+                    return 'cfg_changed'
+            # Casillas de opciones
+            for cb in getattr(self, 'cb_rows', []):
+                if cb['rect'].move(offset).collidepoint(pos):
+                    key = cb['key']
+                    self.opts[key] = not self.opts.get(key, False)
+                    if key == 'particulas':
+                        if not self.opts[key]:
+                            self.font_particula = None
+                            self.particulas.clear()
+                        else:
+                            try:
+                                self.font_particula = pygame.font.SysFont('Arial', 18, bold=True)
+                            except Exception:
+                                self.font_particula = pygame.font.SysFont(None, 18)
                     return 'cfg_changed'
         return self.hit_button(pos)
 
     def hit_button(self, pos):
-        if self.btn_start.collidepoint(pos) and not self.sim_running:
+        offset = getattr(self, 'last_offset', (0, 0))
+        if self.btn_start.move(offset).collidepoint(pos) and not self.sim_running:
             return 'start'
-        if self.btn_pause.collidepoint(pos) and self.sim_running:
+        if self.btn_pause.move(offset).collidepoint(pos) and self.sim_running:
             return 'pause'
-        if self.btn_stop.collidepoint(pos) and self.sim_running:
+        if self.btn_stop.move(offset).collidepoint(pos) and self.sim_running:
             return 'stop'
         return None
 
