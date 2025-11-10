@@ -113,6 +113,7 @@ class Animal(ABC):
         # --- SOLUCIÓN TIRONES (IDEA 1) ---
         # Si el animal llega a su destino, ¡que vague!
         # No espera al próximo "turno de IA" para moverse.
+        self._limitar_objetivo_a_pantalla()
         dist_x = abs(self.target_x - self.pos_x)
         dist_y = abs(self.target_y - self.pos_y)
         
@@ -123,8 +124,7 @@ class Animal(ABC):
             self.target_y = self.pos_y + random.randint(-50, 50)
             
             # Limitar a la pantalla
-            self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
-            self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
+            self._limitar_objetivo_a_pantalla()
 
         # --- Lógica de movimiento (como estaba antes) ---
         dx = self.target_x - self.pos_x
@@ -139,14 +139,24 @@ class Animal(ABC):
             step_y = max(-self.velocidad_frame, min(self.velocidad_frame, dy))
             self.pos_y += step_y
             
-        max_x = max(0, WIDTH - self.rect.width)
-        max_y = max(0, HEIGHT - self.rect.height)
-        self.pos_x = max(0.0, min(self.pos_x, float(max_x)))
-        self.pos_y = max(0.0, min(self.pos_y, float(max_y)))
-        self.rect.topleft = (int(self.pos_x), int(self.pos_y))
+        self._limitar_posicion_a_pantalla()
 
     def ha_muerto(self):
         return self.edad >= self.tiempo_vida or self.energia <= 0
+
+    def _limites_pantalla(self):
+        return max(0, WIDTH - self.rect.width), max(0, HEIGHT - self.rect.height)
+
+    def _limitar_objetivo_a_pantalla(self):
+        max_x, max_y = self._limites_pantalla()
+        self.target_x = max(0.0, min(self.target_x, float(max_x)))
+        self.target_y = max(0.0, min(self.target_y, float(max_y)))
+
+    def _limitar_posicion_a_pantalla(self):
+        max_x, max_y = self._limites_pantalla()
+        self.pos_x = max(0.0, min(self.pos_x, float(max_x)))
+        self.pos_y = max(0.0, min(self.pos_y, float(max_y)))
+        self.rect.topleft = (int(self.pos_x), int(self.pos_y))
 
 class Planta:
     def __init__(self, nombre, energia):
