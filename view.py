@@ -102,6 +102,17 @@ class Vista:
         self.assets = self.cargar_assets_flexible()
         
         self.fondo_superficie = self._crear_fondo_estatico(width, height)
+
+        # Ajuste de fuentes para apariencia profesional
+        try:
+            self.font = pygame.font.SysFont('Segoe UI', 20)
+            self.font_small = pygame.font.SysFont('Segoe UI', 16)
+            self.font_bold = pygame.font.SysFont('Segoe UI Semibold', 20)
+        except Exception:
+            # Fallbacks genericos
+            self.font = pygame.font.SysFont(None, 20)
+            self.font_small = pygame.font.SysFont(None, 16)
+            self.font_bold = pygame.font.SysFont(None, 20)
         
         try:
             self.font = pygame.font.SysFont(None, 30)
@@ -112,6 +123,9 @@ class Vista:
             self.font = None
             self.font_overlay = None
             self.font_particula = None
+
+        # Altura del panel superior (HUD) ampliada para evitar solapes
+        self.top_bar_h = 56
 
         self.sim_running = False
         self.sim_paused = False
@@ -124,7 +138,8 @@ class Vista:
             'plantas': 25, 'peces': 15, 'truchas': 5, 'tiburones': 2,
         }
         self.cfg_rows = []
-        base_y = 45
+        # Panel de configuración comienza justo debajo del HUD
+        base_y = self.top_bar_h + 8
         row_h = 32
         labels = [('Algas','plantas'), ('Peces','peces'), ('Truchas','truchas'), ('Tiburones','tiburones')]
         for i, (label,key) in enumerate(labels):
@@ -138,6 +153,12 @@ class Vista:
         self.burbujas = []
         # --- (IDEA 9) Variable de Screen Shake ---
         self.screen_shake = 0
+        # Estadisticas (UI)
+        self.turn_progress = 0.0
+        self.sim_h = 0
+        self.sim_m = 0
+        self.top_species = None
+        self.surv_scores = None
 
         # --- Estadisticas (UI) ---
         self.turn_progress = 0.0  # avance hacia el siguiente turno (0..1)
@@ -188,9 +209,21 @@ class Vista:
     def _dibujar_boton(self, rect, color, texto, color_texto=COLOR_TEXTO_BTN, offset=(0,0)):
         # --- (IDEA 9) Aplicar offset ---
         rect_con_offset = rect.move(offset)
-        pygame.draw.rect(self.screen, color, rect_con_offset, border_radius=5)
-        if self.font:
-            img_texto = self.font.render(texto, True, color_texto)
+        # Hover sutil para mejor interaccion
+        try:
+            mx, my = pygame.mouse.get_pos()
+            hovered = rect_con_offset.collidepoint((mx, my))
+        except Exception:
+            hovered = False
+        draw_color = color
+        if hovered:
+            draw_color = tuple(min(255, int(c * 1.1)) for c in color)
+        pygame.draw.rect(self.screen, draw_color, rect_con_offset, border_radius=6)
+        # Borde sutil
+        pygame.draw.rect(self.screen, (0,0,0), rect_con_offset, width=1, border_radius=6)
+        font_btn = getattr(self, 'font_bold', self.font)
+        if font_btn:
+            img_texto = font_btn.render(texto, True, color_texto)
             pos_texto = img_texto.get_rect(center=rect_con_offset.center)
             self.screen.blit(img_texto, pos_texto)
 
@@ -311,23 +344,27 @@ class Vista:
             return
             
         # --- (IDEA 9) Aplicar offset al panel ---
-        panel_rect = pygame.Rect(0, 0, self.width, 40).move(offset)
-        panel_ui = pygame.Surface((self.width, 40), pygame.SRCALPHA)
-        panel_ui.fill((240, 240, 240, 180))
+        panel_rect = pygame.Rect(0, 0, self.width, self.top_bar_h).move(offset)
+        panel_ui = pygame.Surface((self.width, self.top_bar_h), pygame.SRCALPHA)
+        panel_ui.fill((245, 248, 250, 210))
         self.screen.blit(panel_ui, panel_rect.topleft)
+        # Línea inferior sutil del HUD
+        pygame.draw.line(self.screen, (200, 200, 200), (0 + offset[0], self.top_bar_h + offset[1]), (self.width + offset[0], self.top_bar_h + offset[1]))
 
-        # Estadísticas (Lado izquierdo)
-        textos = [
-            (f"Algas: {len(ecosistema.plantas)}", VERDE, 10),
-            (f"Peces: {len(ecosistema.peces)}", AZUL, 130),
-            (f"Truchas: {len(ecosistema.truchas)}", MARRON, 260),
-            (f"Tiburones: {len(ecosistema.tiburones)}", GRIS, 420),
+        # Estadísticas (lado izquierdo) con distribución dinámica para evitar solapes
+        y1 = 10
+        x = 10 + offset[0]
+        stats_data = [
+            (f"Algas: {len(ecosistema.plantas)}", VERDE),
+            (f"Peces: {len(ecosistema.peces)}", AZUL),
+            (f"Truchas: {len(ecosistema.truchas)}", MARRON),
+            (f"Tiburones: {len(ecosistema.tiburones)}", GRIS),
         ]
-        
-        for (texto, color, x_pos) in textos:
-            img = self.font.render(texto, True, NEGRO_UI) 
-            # --- (IDEA 9) Aplicar offset al texto ---
-            self.screen.blit(img, (x_pos + offset[0], 10 + offset[1]))
+        for (texto, color) in stats_data:
+            img = self.font.render(texto, True, NEGRO_UI)
+            self.screen.blit(img, (x, y1 + offset[1]))
+            x += img.get_width() + 28  # margen entre etiquetas
+        stats_right = x - offset[0]
             
         # Panel de configuración previa
         if not self.sim_running:
@@ -356,41 +393,59 @@ class Vista:
                 
             self._dibujar_boton(self.btn_stop, COLOR_STOP, "Detener", offset=offset)
 
-        # --- Estadisticas en tiempo real ---
-        # Progreso del turno (barra a la derecha sin invadir botones)
+        # --- Estadísticas en tiempo real ---
+        # Progreso del turno con posición adaptativa (no invade botones ni textos)
         try:
-            bar_w = 150
-            bar_h = 8
-            bar_x = self.width - 650 + offset[0]
-            bar_y = 30 + offset[1]
-            pygame.draw.rect(self.screen, (220,220,220), (bar_x, bar_y, bar_w, bar_h), border_radius=4)
-            p = max(0.0, min(1.0, float(self.turn_progress)))
-            fill_w = int(bar_w * p)
-            if fill_w > 0:
-                pygame.draw.rect(self.screen, (80,180,80), (bar_x, bar_y, fill_w, bar_h), border_radius=4)
-            lbl = self.font.render("Turno", True, NEGRO_UI)
-            self.screen.blit(lbl, (bar_x - 55, bar_y - 6))
+            bar_w = 170
+            bar_h = 10
+            # calcular espacio disponible entre stats y botón Start
+            right_limit = self.btn_start.left - 20 - bar_w
+            left_limit = max(10, stats_right + 20)
+            bar_x = min(max(left_limit, 10), right_limit) + offset[0]
+            bar_y = (self.top_bar_h - bar_h - 8) + offset[1]
+            if right_limit >= 10:  # hay espacio razonable para dibujar
+                pygame.draw.rect(self.screen, (220,220,220), (bar_x, bar_y, bar_w, bar_h), border_radius=4)
+                p = max(0.0, min(1.0, float(self.turn_progress)))
+                fill_w = int(bar_w * p)
+                if fill_w > 0:
+                    pygame.draw.rect(self.screen, (80,180,80), (bar_x, bar_y, fill_w, bar_h), border_radius=4)
+                lbl = self.font.render("Turno", True, NEGRO_UI)
+                self.screen.blit(lbl, (bar_x - 65, bar_y - 8))
         except Exception:
             pass
 
-        # Probabilidad de supervivencia (fila inferior izquierda del panel)
+        # Probabilidad de supervivencia (fila inferior del HUD, izquierda)
         try:
             top = self.top_species or "?"
             if top == 'peces': txt = 'Peces'
             elif top == 'truchas': txt = 'Truchas'
             elif top == 'tiburones': txt = 'Tiburones'
             else: txt = str(top)
+            y2 = 10 + self.font.get_height() + 4
             surv = self.font.render(f"Top: {txt}", True, NEGRO_UI)
-            self.screen.blit(surv, (10 + offset[0], 24 + offset[1]))
+            x2 = 10 + offset[0]
+            self.screen.blit(surv, (x2, y2 + offset[1]))
+            # Indicador gráfico del score del Top (si se proporcionó)
+            if hasattr(self, 'surv_scores') and self.surv_scores and top in self.surv_scores:
+                s = max(0.0, min(1.0, float(self.surv_scores.get(top, 0.0))))
+                bx = x2 + surv.get_width() + 12
+                by = y2 + 4 + offset[1]
+                bw = 90
+                bh = 6
+                pygame.draw.rect(self.screen, (220,220,220), (bx, by, bw, bh), border_radius=3)
+                pygame.draw.rect(self.screen, (60,160,220), (bx, by, int(bw * s), bh), border_radius=3)
         except Exception:
             pass
 
-        # Tiempo de simulacion HH:MM (misma fila)
+        # Tiempo de simulación HH:MM (misma fila)
         try:
             hh = int(self.sim_h)
             mm = int(self.sim_m)
             timg = self.font.render(f"Tiempo: {hh:02d}:{mm:02d}", True, NEGRO_UI)
-            self.screen.blit(timg, (200 + offset[0], 24 + offset[1]))
+            # Colocar a la derecha del indicador Top, con separación
+            time_x = max(200, (10 + offset[0]) + self.font.size(f"Top: {self.top_species or '?'}")[0] + 120)
+            time_y = 10 + self.font.get_height() + 4 + offset[1]
+            self.screen.blit(timg, (time_x, time_y))
         except Exception:
             pass
 
@@ -480,7 +535,7 @@ class Vista:
         pygame.quit()
 
     # --- Setters para estadisticas ---
-    def update_stats(self, turn_progress, sim_minutes, top_species):
+    def update_stats(self, turn_progress, sim_minutes, top_species, scores=None):
         try:
             self.turn_progress = float(turn_progress)
         except Exception:
@@ -492,3 +547,4 @@ class Vista:
         self.sim_h = sim_minutes // 60
         self.sim_m = sim_minutes % 60
         self.top_species = top_species
+        self.surv_scores = scores or {}

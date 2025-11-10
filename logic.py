@@ -5,7 +5,9 @@ from abc import ABC, abstractmethod
 # ---------------------------------
 # CONFIGURACIÓN GLOBAL (compartida)
 # ---------------------------------
-WIDTH, HEIGHT = 1024, 768
+# Aumentamos el tamaño por defecto para que la interfaz tenga más espacio
+# Mantener altura para pantallas 768p y ampliar ancho para evitar solapamientos
+WIDTH, HEIGHT = 1280, 768
 FPS = 30
 TURNO_DURACION_MS = 1000  # Un turno de IA cada 1 s para ciclos mas largos
 # Tamano de celda para particion espacial (mejora de rendimiento)

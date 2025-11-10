@@ -73,12 +73,12 @@ def main():
 
         # Probabilidad de supervivencia (especie top)
         try:
-            top, _scores = ecosistema.calcular_prob_supervivencia()
+            top, scores = ecosistema.calcular_prob_supervivencia()
         except Exception:
-            top = None
+            top, scores = None, None
 
         # Actualizar UI con estadisticas (1 turno ~= 1 minuto sim)
-        vista.update_stats(prog, turnos_ejecutados, top)
+        vista.update_stats(prog, turnos_ejecutados, top, scores)
 
         # Render
         vista.dibujar_ecosistema(ecosistema)
