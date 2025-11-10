@@ -1,10 +1,10 @@
-Simulador de Ecosistema (Pygame)
+Simulador de Ecosistema "Benyi" (Pygame)
 ================================
 
 Descripcion
 - Simulacion con peces, truchas, tiburones y algas.
 - Peces comen algas; truchas comen peces; tiburones comen truchas.
-- POO: cada entidad define su logica y movimiento.
+- POO: cada entidad define su logica y movimiento mediante clases.
 - Ventana fija a 1024x768; las entidades respetan los bordes.
 
 Requisitos
@@ -15,6 +15,8 @@ Ejecucion
 - `python main.py`
 
 Controles
+- Boton "Comenzar" en panel de control.
+- Boton para cantidad de entidades personalizadas.
 - Cerrar ventana para salir.
 
 Arquitectura
@@ -45,5 +47,5 @@ Configuracion previa
 - Si no cambias nada, se usan los valores predeterminados.
 
 Assets
-- Coloca las imagenes en la carpeta `assets/` junto al codigo.
+- Coloca las imagenes y sonidos en la carpeta `assets/` junto al codigo.
 
