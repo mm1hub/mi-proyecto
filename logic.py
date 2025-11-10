@@ -220,9 +220,11 @@ class Carnivoro(Animal):
         super().__init__(nombre, energia, tiempo_vida, ancho=ancho, alto=alto)
         self.presa_key = presa_key
         self.hambre_threshold = hambre_threshold
+        self.presa_objetivo = None
         
     def decidir_objetivo(self, listas_de_seres):
         lista_de_presas = listas_de_seres[self.presa_key]
+        self.presa_objetivo = None
         presa_cercana = None
         distancia_minima = float('inf')
         if self.energia < self.hambre_threshold:
@@ -232,6 +234,7 @@ class Carnivoro(Animal):
                     distancia_minima = distancia
                     presa_cercana = presa
         if presa_cercana:
+            self.presa_objetivo = presa_cercana
             self.target_x = float(presa_cercana.rect.centerx)
             self.target_y = float(presa_cercana.rect.centery)
         # --- SOLUCIÓN TIRONES (IDEA 2) ---
@@ -295,11 +298,27 @@ class Tiburon(Carnivoro):
         super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=45, alto=45)
         # --- CAMBIO (Req 3): Tiburones más lentos y 60 FPS ---
         self.velocidad_frame = random.uniform(0.4, 1.2) # Era 1.0 a 3.0 (reducido a la mitad) y luego 0.5 a 1.5
+        self.estado = 'vagando'
+
+    def decidir_objetivo(self, listas_de_seres):
+        super().decidir_objetivo(listas_de_seres)
+        self.estado = 'cazando' if self.presa_objetivo else 'vagando'
+
+    def update_movimiento_frame(self):
+        if self.estado == 'cazando' and self.presa_objetivo:
+            presa_rect = getattr(self.presa_objetivo, 'rect', None)
+            if presa_rect:
+                # Mantiene el blanco actualizado cada frame para simular persecución guiada.
+                self.target_x = float(presa_rect.centerx)
+                self.target_y = float(presa_rect.centery)
+        super().update_movimiento_frame()
         
     def comer(self, trucha):
         if isinstance(trucha, Trucha):
             energia_ganada = trucha.energia // 2
             self.energia += energia_ganada
+            self.presa_objetivo = None
+            self.estado = 'vagando'
             return energia_ganada
         return 0
     def reproducir(self):
