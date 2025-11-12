@@ -8,7 +8,8 @@ from logic import (
     TEXTURAS, TEXTURAS_TAM,
     COLOR_COMER, COLOR_NACER, COLOR_MORIR,
     COLOR_BURBUJA,
-    # Importar clases de entidades para isinstance
+    # Importar clases de entidades para 'isinstance'.
+    # La Vista necesita "leer" el tipo del Modelo para saber qué dibujar.
     Planta, Pez, Trucha, Tiburon,
     # Importar nuevos colores de UI
     Color, COLOR_PANEL_FONDO, COLOR_TEXTO_TITULO, COLOR_TEXTO_NORMAL,
@@ -19,6 +20,7 @@ from logic import (
 """Capa de presentación: dibuja el ecosistema y maneja la interfaz de usuario."""
 
 # Relaciona eventos simbolicos con archivos ubicados en la carpeta de assets.
+# Un 'map' nos da flexibilidad para cambiar los sonidos sin tocar la lógica.
 SONIDOS_MAP = {
     'comer_pez': 'comer_planta.mp3',
     'comer_depredador': 'comer.mp3',
@@ -30,6 +32,8 @@ SONIDOS_MAP = {
 }
 
 # --- (IDEA 3) Clase para Efectos Visuales ---
+# Encapsulamos los efectos visuales en sus propias clases.
+# Esto limpia el bucle de dibujo principal.
 class Particula:
     """Gestiona un texto flotante para eventos (comer, nacer, morir)."""
     def __init__(self, texto, pos, color, vida=45, velocidad_y=-0.5):
@@ -38,7 +42,7 @@ class Particula:
         self.texto = texto
         self.color = color
         self.vida_maxima = vida
-        self.vida = vida
+        self.vida = vida  # Contador de vida (en frames)
         self.velocidad_y = velocidad_y
         self.alpha = 255
         self.rect = pygame.Rect(self.x, self.y, 20, 20) 
@@ -56,8 +60,9 @@ class Particula:
     def dibujar(self, screen, font, offset=(0,0)):
         """Dibuja el texto de la partícula."""
         try:
+            # El 'render' de texto es costoso, pero para partículas efímeras es aceptable.
             img = font.render(self.texto, True, self.color)
-            img.set_alpha(self.alpha)
+            img.set_alpha(self.alpha) # Aplicamos el 'fading'
             screen.blit(img, (int(self.x + offset[0]), int(self.y + offset[1])))
         except Exception as e:
             pass # Evitar crash si la fuente falla
@@ -68,7 +73,7 @@ class Burbuja:
     def __init__(self, x, y):
         self.x = x
         self.y = y
-        self.vida_maxima = random.randint(60, 120)
+        self.vida_maxima = random.randint(60, 120) # Vidas aleatorias para variedad
         self.vida = self.vida_maxima
         self.velocidad_y = random.uniform(-1.0, -0.5)
         self.radio_max = random.randint(2, 5)
@@ -79,7 +84,7 @@ class Burbuja:
         """Mueve la burbuja hacia arriba y ajusta su radio."""
         self.y += self.velocidad_y
         self.vida -= 1
-        # Radios pequeños simulan el nacimiento de la burbuja antes de expandirse.
+        # Simulamos el "crecimiento" y "explosión" de la burbuja.
         if self.vida > self.vida_maxima - 10:
              self.radio = int(self.radio_max * ( (self.vida_maxima - self.vida) / 10.0) )
         elif self.vida < 20:
@@ -94,9 +99,9 @@ class Burbuja:
         if self.radio < 1:
             return
         try:
-            # Dibuja directamente en la pantalla con transparencia
+            # Dibujar con transparencia requiere una 'Surface' temporal.
             surf = pygame.Surface((self.radio*2, self.radio*2), pygame.SRCALPHA)
-            alpha = int(90 * (self.vida / self.vida_maxima))
+            alpha = int(90 * (self.vida / self.vida_maxima)) # Fading
             alpha = max(0, min(255, alpha))
             color_con_alpha = (
                 COLOR_BURBUJA.r,
@@ -112,24 +117,28 @@ class Burbuja:
             pass # Evitar crash si el radio es inválido
 
 # --- Clase Vista Principal (Rediseñada) ---
-
+# Esta es la clase principal de la capa de presentación.
 class Vista:
     """Gestiona la ventana principal, panel lateral y todos los efectos visuales."""
 
     def __init__(self, width, height):
-        """Inicializa Pygame, carga assets y arma la configuracion de la UI."""
+        """El "constructor" de la UI: prepara la ventana, carga fuentes y define la UI."""
         pygame.init()
         self.width = width
         self.height = height
         self.screen = pygame.display.set_mode((width, height))
         pygame.display.set_caption("Simulador de Ecosistema Acuático")
+        
+        # Delegamos la carga de recursos a métodos especializados.
         self.assets = self.cargar_assets_flexible()  # Texturas precargadas por tipo de entidad.
         self.sonidos = self._cargar_sonidos()        # Clips cortos asociados a eventos.
         self.musica_activa = False
         
+        # Optimizacion: El fondo degradado se pre-renderiza una sola vez.
         self.fondo_superficie = self._crear_fondo_estatico(width, height)
         
         # --- Carga de Fuentes ---
+        # La carga de fuentes es "costosa", se hace una sola vez en el init.
         try:
             self.font_titulo = pygame.font.SysFont('Arial', 24, bold=True)
             self.font_normal = pygame.font.SysFont('Arial', 18)
@@ -146,10 +155,12 @@ class Vista:
             self.font_particula = pygame.font.SysFont(None, 18)
 
         # --- Estado de Simulación ---
+        # La Vista necesita conocer el estado para decidir QUÉ dibujar (menú vs. stats)
         self.sim_running = False
         self.sim_paused = False
 
         # --- Definición del Panel Lateral (UI) ---
+        # Definimos el 'layout' de la UI aquí. Usamos 'Rects' para clics y dibujo.
         self.panel_ancho = 280
         self.panel_rect = pygame.Rect(self.width - self.panel_ancho, 0, self.panel_ancho, self.height)
         self.panel_padding = 20
@@ -164,6 +175,7 @@ class Vista:
         self.btn_stop = pygame.Rect(px, py + (btn_h + 10) * 2, btn_w, btn_h)
 
         # --- Configuración Previa (dentro del panel) ---
+        # Este es el "modelo" de datos interno de la Vista para la configuración.
         self.cfg = {
             'plantas': 25, 'peces': 15, 'truchas': 5, 'tiburones': 2,
         }
@@ -180,6 +192,7 @@ class Vista:
         
         px_controles = px + 100 # Donde empiezan los +/-
         
+        # Generamos los 'Rects' para los controles +/-
         for i, (label, key, asset_key, color) in enumerate(cfg_data):
             y = base_y + i * 40
             # Layout: [IMG] [Label]... [ - ] [ 5 ] [ + ]
@@ -199,13 +212,15 @@ class Vista:
         # --- Partículas y Efectos ---
         self.particulas = []
         self.burbujas = []
-        self.screen_shake = 0
+        self.screen_shake = 0 # Un simple contador para el efecto "vibración"
         
         # --- Almacén de Estadísticas (de main.py) ---
         self.turn_progress = 0.0
 
     def _crear_fondo_estatico(self, width, height):
         """Genera un degradado simple que simula profundidad bajo el agua."""
+        # Esto es una optimización: es más rápido 'blitear' una imagen
+        # que dibujar 720 líneas en cada frame.
         fondo = pygame.Surface((width, height))
         for y in range(height):
             ratio = y / height  # Ratio 0..1 para interpolar entre azul claro y oscuro.
@@ -217,10 +232,10 @@ class Vista:
         return fondo
 
     def cargar_assets_flexible(self):
-        """Intenta cargar texturas desde disco con fallback coloreado."""
+        """Un cargador robusto: busca assets y provee un 'fallback' a formas básicas."""
         assets = {}
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        assets_dir = os.path.join(base_dir, 'assets')  # Carpeta compartida entre lógica y vista.
+        assets_dir = os.path.join(base_dir, 'assets')  # Carpeta compartida
 
         def try_load(names, size):
             """Busca la primera textura disponible y la escala al tamaño deseado."""
@@ -232,7 +247,7 @@ class Vista:
                         return pygame.transform.scale(img, size)
                     except Exception as e:
                         print(f"Error cargando {path}: {e}")
-            return None  # Si ninguna textura existe para el key, se devolverá None y se dibuja una forma.
+            return None  # Si ninguna textura existe, se devolverá None.
         
         for key, names in TEXTURAS.items():
             size = TEXTURAS_TAM.get(key, (20, 20))
@@ -253,23 +268,21 @@ class Vista:
         assets_dir = os.path.join(base_dir, 'assets')
 
         if not os.path.isdir(assets_dir):
-            # Sin carpeta de assets no hay archivos que intentar reproducir.
             return sonidos
 
         if not pygame.mixer.get_init():
             try:
-                pygame.mixer.init()
+                pygame.mixer.init() # Inicializa el subsistema de audio
             except Exception as exc:
                 print(f"Audio deshabilitado (no se pudo inicializar mixer): {exc}")
                 return sonidos
 
-        cache = {}
+        cache = {} # Caché para evitar cargar el mismo archivo (ej. 'morir.mp3') varias veces
         for key, nombre in SONIDOS_MAP.items():
             ruta = os.path.join(assets_dir, nombre)
             if not os.path.isfile(ruta):
                 continue
             if nombre in cache:
-                # Varias claves pueden apuntar al mismo archivo; se reutiliza.
                 sonidos[key] = cache[nombre]
                 continue
             try:
@@ -290,8 +303,7 @@ class Vista:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         ruta_musica = os.path.join(base_dir, 'assets', 'musica_fondo_mar.mp3')
         if not os.path.isfile(ruta_musica):
-            # Es opcional: si el usuario borra la pista no se interrumpe la simulación.
-            return
+            return # La música es opcional
 
         if self.musica_activa and pygame.mixer.get_init() and pygame.mixer.music.get_busy():
             pygame.mixer.music.set_volume(max(0.0, min(1.0, volumen)))
@@ -307,7 +319,7 @@ class Vista:
         try:
             pygame.mixer.music.load(ruta_musica)
             pygame.mixer.music.set_volume(max(0.0, min(1.0, volumen)))
-            pygame.mixer.music.play(loops=-1)
+            pygame.mixer.music.play(loops=-1) # -1 significa loop infinito
             self.musica_activa = True
         except Exception as exc:
             print(f"Error reproduciendo música de fondo: {exc}")
@@ -320,33 +332,32 @@ class Vista:
         if not sonido:
             return
         try:
-            # Ajustamos volumen en cada invocación para permitir variaciones por evento.
             sonido.set_volume(max(0.0, min(1.0, volumen)))
             sonido.play()
         except Exception:
-            # Cualquier fallo del mixer se ignora para no detener la simulación.
-            pass
+            pass # Cualquier fallo del mixer se ignora
 
     def _dibujar_boton(self, rect, color_base, texto, color_texto=COLOR_TEXTO_BTN, offset=(0,0), hover_color=None):
-        """Dibuja un botón con offset y efecto hover opcional."""
-        rect_con_offset = rect.move(offset)  # Permite reutilizar lógica para panel estático o con shake.
+        """Un 'widget' privado para dibujar botones. Encapsula la lógica de renderizado."""
+        rect_con_offset = rect.move(offset)  
         color = color_base
         
         # --- Efecto Hover (Idea 5) ---
         if hover_color and rect_con_offset.collidepoint(pygame.mouse.get_pos()):
-            # Interpola el color (lerp)
+            # Interpola el color (lerp) para un efecto suave
             color = color_base.lerp(hover_color, 0.3)
             
         pygame.draw.rect(self.screen, color, rect_con_offset, border_radius=5)
+        # Renderizamos y centramos el texto dentro del botón.
         img_texto = self.font_normal.render(texto, True, color_texto)
         pos_texto = img_texto.get_rect(center=rect_con_offset.center)
         self.screen.blit(img_texto, pos_texto)
 
     def _dibujar_barra_progreso(self, rect, progress, color_fg, color_bg, offset=(0,0)):
-        """Dibuja una barra de progreso con offset."""
+        """Widget' privado para barras de progreso."""
         rect_con_offset = rect.move(offset)
         pygame.draw.rect(self.screen, color_bg, rect_con_offset, border_radius=4)
-        progress = max(0, min(1, progress)) # Asegurar 0.0 a 1.0
+        progress = max(0, min(1, progress)) # Asegurar 0.0 a 1.0 (clamping)
         fg_rect = pygame.Rect(rect_con_offset.x, rect_con_offset.y, 
                               int(rect_con_offset.width * progress), rect_con_offset.height)
         pygame.draw.rect(self.screen, color_fg, fg_rect, border_radius=4)
@@ -355,77 +366,85 @@ class Vista:
         """Dibuja el overlay de Pausa con offset."""
         if not self.font_overlay:
             return
-        # El overlay cubre solo el área de simulación
+        # El overlay cubre solo el área de simulación (no el panel)
         overlay_rect = pygame.Rect(0, 0, self.panel_rect.left, self.height)
+        # Usamos una superficie con Alpha para el efecto "oscurecido"
         overlay = pygame.Surface(overlay_rect.size, pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 128))
-        self.screen.blit(overlay, (0,0)) # Se dibuja en 0,0
+        overlay.fill((0, 0, 0, 128)) # Negro semi-transparente
+        self.screen.blit(overlay, (0,0)) 
         
-        # El texto sí vibra
+        # El texto sí vibra con el 'shake_offset'
         img_pausa = self.font_overlay.render("PAUSA", True, BLANCO)
-        # Centrar en el área de simulación
         pos_pausa = img_pausa.get_rect(center=(overlay_rect.centerx + offset[0], overlay_rect.centery + offset[1]))
         self.screen.blit(img_pausa, pos_pausa)
 
     # --- Bucle de Dibujo Principal ---
 
     def dibujar_ecosistema(self, ecosistema):
-        """Compone la escena: mundo, panel lateral, efectos y overlays."""
+        """Este es el "corazón" del renderizado, llamado 60 veces por segundo desde main."""
         
+        # Calculamos el 'offset' del screen shake.
         shake_offset = (0, 0)
         if self.screen_shake > 0:
-            self.screen_shake -= 1
+            self.screen_shake -= 1 # El 'shake' se consume
             shake_offset = (random.randint(-4, 4), random.randint(-4, 4))
             
         # 1. Dibujar la simulación (fondo y entidades)
+        # Aplicamos el 'shake_offset' al fondo.
         self.screen.blit(self.fondo_superficie, shake_offset)
         
-        # Actualizar y crear burbujas
+        # Actualizar y crear burbujas (lógica puramente visual)
         for i in range(len(self.burbujas) - 1, -1, -1):
             b = self.burbujas[i]
             b.actualizar()
             if b.vida <= 0:
                 self.burbujas.pop(i)
         
+        # Creamos burbujas esporádicamente si la simulación corre
         if self.sim_running and not self.sim_paused:
             plantas, peces, truchas, tiburones = ecosistema.get_all_entities()
             animales_que_respiran = peces + truchas
-            if random.random() < 0.05: 
+            if random.random() < 0.05: # 5% de chance por frame
                 if animales_que_respiran:
                     animal = random.choice(animales_que_respiran)
-                    # No crear burbujas en la zona del panel
                     if animal.rect.centerx < self.panel_rect.left:
-                        # Las burbujas nacen en bocas y añaden vida al fondo.
                         self.burbujas.append(Burbuja(animal.rect.centerx, animal.rect.top))
         else:
             plantas, peces, truchas, tiburones = [],[],[],[] # Vacío si no corre
 
-        # Z-Sorting (Falso 3D)
+        # Punto clave: Z-Sorting. Dibujamos las entidades de 'atrás' (Y más baja) primero.
+        # Esto da una ilusión de profundidad.
         todas_las_entidades = (
             plantas + peces + truchas + tiburones + self.burbujas
         )
         todas_las_entidades.sort(key=lambda e: e.rect.bottom)
         
+        # Bucle de renderizado de entidades
         for entidad in todas_las_entidades:
-            # No dibujar entidades que estén "detrás" del panel
+            # Ocultar entidades detrás del panel
             if entidad.rect.right > self.panel_rect.left:
-                 continue # Ocultar entidades detrás del panel
+                 continue 
             
             elif isinstance(entidad, Burbuja):
                 entidad.dibujar(self.screen, shake_offset)
                 
             else:
+                # El 'rect' de la entidad se ajusta con el 'shake'
                 rect_dibujo = entidad.rect.move(shake_offset)
 
+                # Aquí es donde la Vista "lee" el Modelo usando 'isinstance'
+                # y decide qué asset o forma dibujar.
                 if isinstance(entidad, Planta):
                     if 'alga' in self.assets:
                         self.screen.blit(self.assets['alga'], rect_dibujo)
                     else:
+                        # Fallback si no hay imagen
                         pygame.draw.circle(self.screen, VERDE, rect_dibujo.center, 7)
                 
                 elif isinstance(entidad, Pez):
                     if 'pez' in self.assets:
                         sprite = self.assets['pez']
+                        # Giramos el sprite basado en la dirección (leída del modelo)
                         if entidad.direccion_h == -1:
                             sprite = pygame.transform.flip(sprite, True, False)
                         self.screen.blit(sprite, rect_dibujo)
@@ -463,6 +482,7 @@ class Vista:
         if self.sim_running and self.sim_paused:
             self.dibujar_overlay_pausa(shake_offset)
 
+        # Finalmente, actualizamos la pantalla.
         pygame.display.flip()  # Intercambia buffers para mostrar el frame recién pintado.
 
     # --- Métodos de Dibujo de la UI (Widgets) ---
@@ -472,12 +492,11 @@ class Vista:
         if not self.font_normal:
             return
             
-        # Dibujar el fondo del panel
+        # Dibujar el fondo del panel (con transparencia)
         panel_surf = pygame.Surface((self.panel_ancho, self.height), pygame.SRCALPHA)
         panel_surf.fill(COLOR_PANEL_FONDO)
         self.screen.blit(panel_surf, (self.panel_rect.x, 0))
         
-        # Obtener posición del mouse para Hovers
         mouse_pos = pygame.mouse.get_pos()
         
         # Título del Panel
@@ -487,14 +506,14 @@ class Vista:
         # Dibujar widgets
         self._dibujar_controles_principales(mouse_pos)
         
-        # La UI cambia dependiendo de si la simulación está corriendo
+        # La UI es sensible al estado: muestra Config o Stats.
         if self.sim_running:
             self._dibujar_stats_simulacion(ecosistema)
         else:
             self._dibujar_config_previa(mouse_pos)
 
     def _dibujar_controles_principales(self, mouse_pos):
-        """Dibuja los botones Start, Pause, Stop."""
+        """Dibuja los botones Start, Pause, Stop, usando el widget _dibujar_boton."""
         
         # Botón Start/Comenzar (solo se muestra si NO está corriendo)
         if not self.sim_running:
@@ -504,11 +523,10 @@ class Vista:
         # Botones Pause y Stop (solo si la simulación está corriendo)
         if self.sim_running:
             if self.sim_paused:
-                # Cuando está pausada el botón actúa como "Resume".
+                # El botón de pausa cambia de texto y color.
                 self._dibujar_boton(self.btn_pause, COLOR_RESUME, "Reanudar", 
                                     hover_color=BLANCO)
             else:
-                # En ejecución muestra "Pausar" con el color amarillo característico.
                 self._dibujar_boton(self.btn_pause, COLOR_PAUSE, "Pausar", NEGRO_UI, 
                                     hover_color=BLANCO)
                 
@@ -525,7 +543,6 @@ class Vista:
             # --- (Req 2) Dibujar Imagen/Sprite ---
             asset = self.assets.get(row['asset_key'])
             if asset:
-                # Centrar el asset en su rect
                 asset_rect = asset.get_rect(center=row['img_rect'].center)
                 self.screen.blit(asset, asset_rect)
             else:
@@ -537,13 +554,13 @@ class Vista:
             lbl_pos = lbl_img.get_rect(centery=row['lbl_rect'].centery, left=row['lbl_rect'].left)
             self.screen.blit(lbl_img, lbl_pos)
             
-            # --- Controles +/- con hover ---
+            # --- Controles +/- con hover (reutilizando el widget de botón) ---
             self._dibujar_boton(row['minus'], COLOR_SEPARADOR, "-", COLOR_TEXTO_TITULO, 
                                 hover_color=BLANCO)
             self._dibujar_boton(row['plus'], COLOR_SEPARADOR, "+", COLOR_TEXTO_TITULO, 
                                 hover_color=BLANCO)
             
-            # Valor actual
+            # Valor actual (leído del 'self.cfg' interno de la Vista)
             val = self.cfg[row['key']]
             val_img = self.font_normal.render(str(val), True, COLOR_TEXTO_TITULO)
             val_rect = val_img.get_rect(center=row['text_rect'].center)
@@ -561,7 +578,7 @@ class Vista:
         self.screen.blit(titulo_img, (px, py))
         py += 45 # Más espacio
         
-        # 2. Progreso del Turno (Conservado)
+        # 2. Progreso del Turno (Alimentado por 'update_stats' desde main)
         img_prog = self.font_pequeno.render("Siguiente Turno IA:", True, COLOR_TEXTO_NORMAL)
         self.screen.blit(img_prog, (px, py))
         py += 20
@@ -571,7 +588,7 @@ class Vista:
         
         # --- (Req 1) "Tiempo Transcurrido" y "Especie Dominante" ELIMINADOS ---
         
-        # 3. Barras de Población (Conservado)
+        # 3. Barras de Población (Leídas en vivo del modelo 'ecosistema')
         self._dibujar_stats_poblacion(ecosistema, py)
 
     def _dibujar_stats_poblacion(self, ecosistema, start_y):
@@ -579,6 +596,7 @@ class Vista:
         px = self.panel_rect.x + self.panel_padding
         ancho_total = self.panel_rect.width - (self.panel_padding * 2)
         
+        # Leemos los datos del modelo 'ecosistema'
         plantas, peces, truchas, tiburones = ecosistema.get_all_entities()
         counts = {
             'plantas': len(plantas),
@@ -586,6 +604,7 @@ class Vista:
             'truchas': len(truchas),
             'tiburones': len(tiburones),
         }
+        # Usamos un 'max' fijo para que las barras sean comparables
         max_counts = {'plantas': 50, 'peces': 30, 'truchas': 15, 'tiburones': 10}
         labels = [('🌿 Algas','plantas'), ('🐟 Peces','peces'), ('🐠 Truchas','truchas'), ('🦈 Tiburones','tiburones')]
         colors = {'plantas': VERDE, 'peces': AZUL, 'truchas': MARRON, 'tiburones': GRIS}
@@ -593,7 +612,7 @@ class Vista:
         py = start_y
         for label, key in labels:
             count = counts[key]
-            max_c = max_counts.get(key, count + 1)  # Permite escalar cada barra con un techo razonable.
+            max_c = max_counts.get(key, count + 1)
             progress = min(1.0, count / float(max(1, max_c)))
             
             label_img = self.font_normal.render(f"{label} ({count})", True, COLOR_TEXTO_NORMAL)
@@ -607,11 +626,12 @@ class Vista:
     # --- Métodos de Gestión de Eventos y Estado ---
 
     def gestionar_eventos(self, eventos):
-        """Lee la lista de eventos de la lógica y crea partículas."""
+        """Lee la lista de eventos de la lógica y crea partículas visuales."""
         if not self.font_particula:
             eventos.clear()
             return
 
+        # 'eventos_visuales' es la cola que la Lógica llena y la Vista consume.
         for evento in eventos:
             try:
                 tipo = evento[0]
@@ -626,14 +646,12 @@ class Vista:
                 if tipo == 'comer_pez':
                     valor = evento[2]
                     self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER))
-                    # Pequeño feedback positivo cuando los peces herbívoros comen.
                     self.reproducir_sonido('comer_pez')
                 
                 elif tipo == 'comer_depredador':
                     valor = evento[2]
                     self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER, vida=60))
-                    self.screen_shake = 10
-                    # Los depredadores provocan una vibración y un audio diferente.
+                    self.screen_shake = 10 # Activamos el 'shake'
                     self.reproducir_sonido('comer_depredador')
                 
                 elif tipo == 'nacer':
@@ -642,20 +660,19 @@ class Vista:
                 elif tipo == 'morir':
                     self.particulas.append(Particula("💀", pos_adj, COLOR_MORIR, vida=60))
                     self.screen_shake = 8
-                    # Se acompaña la muerte con un sonido grave.
                     self.reproducir_sonido('morir')
             
             except Exception as e:
                 print(f"Error procesando evento {evento}: {e}")
         
-        eventos.clear()  # La vista consume los eventos para evitar repetirlos en el siguiente frame.
+        eventos.clear()  # La vista consume los eventos.
 
     def actualizar_y_dibujar_particulas(self, offset=(0,0)):
         """Mueve, dibuja y elimina las partículas de efectos visuales."""
         if not self.font_particula:
             return
             
-        # Se recorre en reversa para eliminar partículas en caliente sin problemas de índices.
+        # Se recorre en reversa para eliminar partículas 'muertas' de forma segura.
         for i in range(len(self.particulas) - 1, -1, -1):
             p = self.particulas[i]
             p.actualizar()
@@ -665,15 +682,17 @@ class Vista:
             else:
                 p.dibujar(self.screen, self.font_particula, offset)
 
+    # --- API de la Vista (Métodos llamados por Main.py) ---
+
     def set_estado_simulacion(self, sim_running, sim_paused):
-        """Recibe el estado desde main.py y lo guarda."""
+        """Esta es la "entrada" de estado desde main.py."""
         self.sim_running = sim_running
         self.sim_paused = sim_paused
 
     def get_config_counts(self):
-        """Devuelve los conteos elegidos en la configuración previa."""
+        """Esta es la "salida" de datos hacia main.py."""
+        # Devuelve los valores de la UI de configuración.
         return {
-            # Se fuerza a int para evitar que la UI deje valores tipo str.
             'plantas': int(self.cfg.get('plantas', 25)),
             'peces': int(self.cfg.get('peces', 15)),
             'truchas': int(self.cfg.get('truchas', 5)),
@@ -683,42 +702,42 @@ class Vista:
     # --- Manejadores de Clics (Actualizados para el Panel) ---
 
     def handle_click(self, pos):
-        """Manejador principal de clics, delega al panel correcto."""
+        """Esta es la "salida" de la Vista. Traduce un clic (píxeles) a una acción (string)."""
         
-        # Si el clic no está en el panel lateral, ignorarlo
+        # Si el clic no está en el panel lateral, la Vista lo ignora.
         if not self.panel_rect.collidepoint(pos):
             return None
             
         # 1. Clics de Configuración (solo si no está corriendo)
+        # La Vista maneja los clics de +/- internamente, actualizando 'self.cfg'.
         if not self.sim_running:
             for row in self.cfg_rows:
                 if row['minus'].collidepoint(pos):
                     k = row['key']
                     self.cfg[k] = max(0, self.cfg[k] - 1)
-                    # La vista notifica al caller para que refresque los textos inmediatamente.
-                    return 'cfg_changed'
+                    return 'cfg_changed' # Notifica, aunque main no usa esto
                 if row['plus'].collidepoint(pos):
                     k = row['key']
-                    self.cfg[k] = min(200, self.cfg[k] + 1) # Límite de 200
+                    self.cfg[k] = min(200, self.cfg[k] + 1)
                     return 'cfg_changed'
                     
         # 2. Clics de Control (Start/Pause/Stop)
+        # Delega a 'hit_button' para ver si se pulsó un botón de acción.
         return self.hit_button(pos)
 
     def hit_button(self, pos):
         """Comprueba si un click (pos) ha golpeado un botón de control."""
-        # Los botones ya están en coordenadas de pantalla, no necesitan offset
+        # Comprobación simple de colisión de 'Rects'
         if self.btn_start.collidepoint(pos) and not self.sim_running:
-            # Start se ignora cuando la simulación ya está ejecutándose.
             return 'start'
         if self.btn_pause.collidepoint(pos) and self.sim_running:
             return 'pause'
         if self.btn_stop.collidepoint(pos) and self.sim_running:
             return 'stop'
-        return None
+        return None # Si el clic fue en el panel pero no en un botón
 
     def cerrar(self):
-        """Detiene audio y hace quit de Pygame cuando cierra la app."""
+        """Limpia los recursos de Pygame."""
         if pygame.mixer.get_init():
             try:
                 pygame.mixer.music.stop()
@@ -729,10 +748,8 @@ class Vista:
 
     # --- Setters para estadísticas (Implementado) ---
     def update_stats(self, turn_progress):
-        """Recibe los datos de main.py y los guarda."""
+        """Esta es la "entrada" de datos desde main.py. La Vista es 'alimentada' con estado."""
         try:
             self.turn_progress = float(turn_progress)
         except Exception:
-            # Si llega None o un tipo inesperado, se resetea a 0 para evitar NaN.
             self.turn_progress = 0.0
-            
