@@ -16,6 +16,9 @@ from logic import (
     WIDTH, HEIGHT # Importar dimensiones
 )
 
+"""Capa de presentación: dibuja el ecosistema y maneja la interfaz de usuario."""
+
+# Relaciona eventos simbolicos con archivos ubicados en la carpeta de assets.
 SONIDOS_MAP = {
     'comer_pez': 'comer_planta.mp3',
     'comer_depredador': 'comer.mp3',
@@ -30,6 +33,7 @@ SONIDOS_MAP = {
 class Particula:
     """Gestiona un texto flotante para eventos (comer, nacer, morir)."""
     def __init__(self, texto, pos, color, vida=45, velocidad_y=-0.5):
+        # Se almacena la posición como floats para obtener desplazamientos suaves.
         self.x, self.y = pos
         self.texto = texto
         self.color = color
@@ -43,6 +47,7 @@ class Particula:
         """Mueve la partícula hacia arriba y reduce su vida."""
         self.y += self.velocidad_y
         self.vida -= 1
+        # A mitad de vida comienza a desvanecerse para simular fading.
         if self.vida < self.vida_maxima / 2:
             self.alpha = int(255 * (self.vida / (self.vida_maxima / 2)))
         self.alpha = max(0, min(255, self.alpha))
@@ -74,6 +79,7 @@ class Burbuja:
         """Mueve la burbuja hacia arriba y ajusta su radio."""
         self.y += self.velocidad_y
         self.vida -= 1
+        # Radios pequeños simulan el nacimiento de la burbuja antes de expandirse.
         if self.vida > self.vida_maxima - 10:
              self.radio = int(self.radio_max * ( (self.vida_maxima - self.vida) / 10.0) )
         elif self.vida < 20:
@@ -90,8 +96,14 @@ class Burbuja:
         try:
             # Dibuja directamente en la pantalla con transparencia
             surf = pygame.Surface((self.radio*2, self.radio*2), pygame.SRCALPHA)
-            alpha = int(90 * (self.vida / self.vida_maxima)) 
-            color_con_alpha = COLOR_BURBUJA + (alpha,)
+            alpha = int(90 * (self.vida / self.vida_maxima))
+            alpha = max(0, min(255, alpha))
+            color_con_alpha = (
+                COLOR_BURBUJA.r,
+                COLOR_BURBUJA.g,
+                COLOR_BURBUJA.b,
+                alpha,
+            )
             pygame.draw.circle(surf, color_con_alpha, (self.radio, self.radio), self.radio)
             
             # Aplicar offset y dibujar
@@ -102,14 +114,17 @@ class Burbuja:
 # --- Clase Vista Principal (Rediseñada) ---
 
 class Vista:
+    """Gestiona la ventana principal, panel lateral y todos los efectos visuales."""
+
     def __init__(self, width, height):
+        """Inicializa Pygame, carga assets y arma la configuracion de la UI."""
         pygame.init()
         self.width = width
         self.height = height
         self.screen = pygame.display.set_mode((width, height))
         pygame.display.set_caption("Simulador de Ecosistema Acuático")
-        self.assets = self.cargar_assets_flexible()
-        self.sonidos = self._cargar_sonidos()
+        self.assets = self.cargar_assets_flexible()  # Texturas precargadas por tipo de entidad.
+        self.sonidos = self._cargar_sonidos()        # Clips cortos asociados a eventos.
         self.musica_activa = False
         
         self.fondo_superficie = self._crear_fondo_estatico(width, height)
@@ -174,6 +189,7 @@ class Vista:
             text_rect = pygame.Rect(minus_rect.right, y, 40, 30) # Más espacio para números
             plus_rect = pygame.Rect(text_rect.right, y, 30, 30)
             
+            # Guardamos todos los rects involucrados para reutilizarlos en el render y hit-test.
             self.cfg_rows.append({
                 'label': label, 'key': key, 'asset_key': asset_key, 'color': color,
                 'img_rect': img_rect, 'lbl_rect': lbl_rect,
@@ -187,14 +203,12 @@ class Vista:
         
         # --- Almacén de Estadísticas (de main.py) ---
         self.turn_progress = 0.0
-        self.sim_minutes = 0
-        self.top_species = "N/A"
-        self.scores = {}
 
     def _crear_fondo_estatico(self, width, height):
+        """Genera un degradado simple que simula profundidad bajo el agua."""
         fondo = pygame.Surface((width, height))
         for y in range(height):
-            ratio = y / height
+            ratio = y / height  # Ratio 0..1 para interpolar entre azul claro y oscuro.
             r = int(AGUA_CLARA[0] * (1 - ratio) + AGUA_OSCURA[0] * ratio)
             g = int(AGUA_CLARA[1] * (1 - ratio) + AGUA_OSCURA[1] * ratio)
             b = int(AGUA_CLARA[2] * (1 - ratio) + AGUA_OSCURA[2] * ratio)
@@ -203,11 +217,13 @@ class Vista:
         return fondo
 
     def cargar_assets_flexible(self):
+        """Intenta cargar texturas desde disco con fallback coloreado."""
         assets = {}
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        assets_dir = os.path.join(base_dir, 'assets')
+        assets_dir = os.path.join(base_dir, 'assets')  # Carpeta compartida entre lógica y vista.
 
         def try_load(names, size):
+            """Busca la primera textura disponible y la escala al tamaño deseado."""
             for name in names:
                 path = os.path.join(assets_dir, name)
                 if os.path.isfile(path):
@@ -216,7 +232,7 @@ class Vista:
                         return pygame.transform.scale(img, size)
                     except Exception as e:
                         print(f"Error cargando {path}: {e}")
-            return None
+            return None  # Si ninguna textura existe para el key, se devolverá None y se dibuja una forma.
         
         for key, names in TEXTURAS.items():
             size = TEXTURAS_TAM.get(key, (20, 20))
@@ -237,6 +253,7 @@ class Vista:
         assets_dir = os.path.join(base_dir, 'assets')
 
         if not os.path.isdir(assets_dir):
+            # Sin carpeta de assets no hay archivos que intentar reproducir.
             return sonidos
 
         if not pygame.mixer.get_init():
@@ -252,6 +269,7 @@ class Vista:
             if not os.path.isfile(ruta):
                 continue
             if nombre in cache:
+                # Varias claves pueden apuntar al mismo archivo; se reutiliza.
                 sonidos[key] = cache[nombre]
                 continue
             try:
@@ -268,9 +286,11 @@ class Vista:
         return sonidos
 
     def iniciar_musica_fondo(self, volumen=5.0):
+        """Carga y reproduce la pista base en loop suave."""
         base_dir = os.path.dirname(os.path.abspath(__file__))
         ruta_musica = os.path.join(base_dir, 'assets', 'musica_fondo_mar.mp3')
         if not os.path.isfile(ruta_musica):
+            # Es opcional: si el usuario borra la pista no se interrumpe la simulación.
             return
 
         if self.musica_activa and pygame.mixer.get_init() and pygame.mixer.music.get_busy():
@@ -300,14 +320,16 @@ class Vista:
         if not sonido:
             return
         try:
+            # Ajustamos volumen en cada invocación para permitir variaciones por evento.
             sonido.set_volume(max(0.0, min(1.0, volumen)))
             sonido.play()
         except Exception:
+            # Cualquier fallo del mixer se ignora para no detener la simulación.
             pass
 
     def _dibujar_boton(self, rect, color_base, texto, color_texto=COLOR_TEXTO_BTN, offset=(0,0), hover_color=None):
         """Dibuja un botón con offset y efecto hover opcional."""
-        rect_con_offset = rect.move(offset)
+        rect_con_offset = rect.move(offset)  # Permite reutilizar lógica para panel estático o con shake.
         color = color_base
         
         # --- Efecto Hover (Idea 5) ---
@@ -348,6 +370,7 @@ class Vista:
     # --- Bucle de Dibujo Principal ---
 
     def dibujar_ecosistema(self, ecosistema):
+        """Compone la escena: mundo, panel lateral, efectos y overlays."""
         
         shake_offset = (0, 0)
         if self.screen_shake > 0:
@@ -372,6 +395,7 @@ class Vista:
                     animal = random.choice(animales_que_respiran)
                     # No crear burbujas en la zona del panel
                     if animal.rect.centerx < self.panel_rect.left:
+                        # Las burbujas nacen en bocas y añaden vida al fondo.
                         self.burbujas.append(Burbuja(animal.rect.centerx, animal.rect.top))
         else:
             plantas, peces, truchas, tiburones = [],[],[],[] # Vacío si no corre
@@ -439,7 +463,7 @@ class Vista:
         if self.sim_running and self.sim_paused:
             self.dibujar_overlay_pausa(shake_offset)
 
-        pygame.display.flip()
+        pygame.display.flip()  # Intercambia buffers para mostrar el frame recién pintado.
 
     # --- Métodos de Dibujo de la UI (Widgets) ---
 
@@ -480,9 +504,11 @@ class Vista:
         # Botones Pause y Stop (solo si la simulación está corriendo)
         if self.sim_running:
             if self.sim_paused:
+                # Cuando está pausada el botón actúa como "Resume".
                 self._dibujar_boton(self.btn_pause, COLOR_RESUME, "Reanudar", 
                                     hover_color=BLANCO)
             else:
+                # En ejecución muestra "Pausar" con el color amarillo característico.
                 self._dibujar_boton(self.btn_pause, COLOR_PAUSE, "Pausar", NEGRO_UI, 
                                     hover_color=BLANCO)
                 
@@ -567,7 +593,7 @@ class Vista:
         py = start_y
         for label, key in labels:
             count = counts[key]
-            max_c = max_counts.get(key, count + 1)
+            max_c = max_counts.get(key, count + 1)  # Permite escalar cada barra con un techo razonable.
             progress = min(1.0, count / float(max(1, max_c)))
             
             label_img = self.font_normal.render(f"{label} ({count})", True, COLOR_TEXTO_NORMAL)
@@ -600,12 +626,14 @@ class Vista:
                 if tipo == 'comer_pez':
                     valor = evento[2]
                     self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER))
+                    # Pequeño feedback positivo cuando los peces herbívoros comen.
                     self.reproducir_sonido('comer_pez')
                 
                 elif tipo == 'comer_depredador':
                     valor = evento[2]
                     self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER, vida=60))
                     self.screen_shake = 10
+                    # Los depredadores provocan una vibración y un audio diferente.
                     self.reproducir_sonido('comer_depredador')
                 
                 elif tipo == 'nacer':
@@ -614,18 +642,20 @@ class Vista:
                 elif tipo == 'morir':
                     self.particulas.append(Particula("💀", pos_adj, COLOR_MORIR, vida=60))
                     self.screen_shake = 8
+                    # Se acompaña la muerte con un sonido grave.
                     self.reproducir_sonido('morir')
             
             except Exception as e:
                 print(f"Error procesando evento {evento}: {e}")
         
-        eventos.clear()
+        eventos.clear()  # La vista consume los eventos para evitar repetirlos en el siguiente frame.
 
     def actualizar_y_dibujar_particulas(self, offset=(0,0)):
         """Mueve, dibuja y elimina las partículas de efectos visuales."""
         if not self.font_particula:
             return
             
+        # Se recorre en reversa para eliminar partículas en caliente sin problemas de índices.
         for i in range(len(self.particulas) - 1, -1, -1):
             p = self.particulas[i]
             p.actualizar()
@@ -643,6 +673,7 @@ class Vista:
     def get_config_counts(self):
         """Devuelve los conteos elegidos en la configuración previa."""
         return {
+            # Se fuerza a int para evitar que la UI deje valores tipo str.
             'plantas': int(self.cfg.get('plantas', 25)),
             'peces': int(self.cfg.get('peces', 15)),
             'truchas': int(self.cfg.get('truchas', 5)),
@@ -664,6 +695,7 @@ class Vista:
                 if row['minus'].collidepoint(pos):
                     k = row['key']
                     self.cfg[k] = max(0, self.cfg[k] - 1)
+                    # La vista notifica al caller para que refresque los textos inmediatamente.
                     return 'cfg_changed'
                 if row['plus'].collidepoint(pos):
                     k = row['key']
@@ -677,6 +709,7 @@ class Vista:
         """Comprueba si un click (pos) ha golpeado un botón de control."""
         # Los botones ya están en coordenadas de pantalla, no necesitan offset
         if self.btn_start.collidepoint(pos) and not self.sim_running:
+            # Start se ignora cuando la simulación ya está ejecutándose.
             return 'start'
         if self.btn_pause.collidepoint(pos) and self.sim_running:
             return 'pause'
@@ -685,26 +718,21 @@ class Vista:
         return None
 
     def cerrar(self):
+        """Detiene audio y hace quit de Pygame cuando cierra la app."""
         if pygame.mixer.get_init():
             try:
                 pygame.mixer.music.stop()
                 self.musica_activa = False
             except Exception:
                 pass
-        pygame.quit()
+        pygame.quit()  # Libera todos los subsistemas de Pygame.
 
     # --- Setters para estadísticas (Implementado) ---
-    def update_stats(self, turn_progress, sim_minutes, top_species, scores=None):
+    def update_stats(self, turn_progress):
         """Recibe los datos de main.py y los guarda."""
         try:
             self.turn_progress = float(turn_progress)
         except Exception:
+            # Si llega None o un tipo inesperado, se resetea a 0 para evitar NaN.
             self.turn_progress = 0.0
             
-        try:
-            self.sim_minutes = max(0, int(sim_minutes or 0))
-        except Exception:
-            self.sim_minutes = 0
-            
-        self.top_species = top_species or "N/A"
-        self.scores = scores or {}
