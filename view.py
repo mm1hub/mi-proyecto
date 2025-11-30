@@ -32,6 +32,12 @@ SONIDOS_MAP = {
     'stop': 'morir.mp3',
 }
 
+ICONOS_ESPECIES = {
+    'pez': '🐟',
+    'trucha': '🐠',
+    'tiburon': '🦈'
+}
+
 # --- (IDEA 3) Clase para Efectos Visuales ---
 # Encapsulamos los efectos visuales en sus propias clases.
 # Esto limpia el bucle de dibujo principal.
@@ -741,8 +747,16 @@ class Vista:
                     self.screen_shake = 10 # Activamos el 'shake'
                     self.reproducir_sonido('comer_depredador')
                 
+                elif tipo == 'aparearse':
+                    especie = evento[2] if len(evento) > 2 else None
+                    icono = ICONOS_ESPECIES.get(especie, "💕")
+                    texto = f"{icono} Pareja"
+                    self.particulas.append(Particula(texto, pos_adj, COLOR_NACER, vida=70))
                 elif tipo == 'nacer':
-                    self.particulas.append(Particula("❤️", pos_adj, COLOR_NACER, vida=60))
+                    especie = evento[2] if len(evento) > 2 else None
+                    icono = ICONOS_ESPECIES.get(especie, "❤️")
+                    texto = f"{icono} +1"
+                    self.particulas.append(Particula(texto, pos_adj, COLOR_NACER, vida=75))
                 
                 elif tipo == 'morir':
                     self.particulas.append(Particula("💀", pos_adj, COLOR_MORIR, vida=60))

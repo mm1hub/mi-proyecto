@@ -115,6 +115,7 @@ class Animal(ABC):
         
         self.direccion_h = 1 # 1 = derecha, -1 = izquierda (para la Vista)
         self.estado_tiempo = None
+        self.consumo_base = 2.0
         
         # ... (recortes de seguridad) ...
         if self.rect.right > WIDTH: self.rect.right = WIDTH
@@ -139,7 +140,7 @@ class Animal(ABC):
     def update_decision_turno(self, listas_de_seres):
         """Actualiza energia/edad y delega la seleccion de objetivos."""
         # "Este es el 'tick' de IA (lento). Consume energía y envejece."
-        self.energia -= 2 
+        self.energia -= self.consumo_base
         self.edad += 1     
         self.estado_tiempo = listas_de_seres.get("estado_tiempo")
         self.decidir_objetivo(listas_de_seres) # "Aquí el animal 'piensa'."
@@ -224,6 +225,7 @@ class Pez(Animal):
         super().__init__(nombre, energia, tiempo_vida, ancho=20, alto=20)
         self.velocidad_frame = random.uniform(1.0, 2.0) 
         self.velocidad_base = self.velocidad_frame
+        self.consumo_base = 1.0
 
     def comer(self, planta):
         """Consume plantas y devuelve la energia obtenida."""
@@ -235,12 +237,17 @@ class Pez(Animal):
     def reproducir(self, estado_tiempo):
         """Genera una nueva cria si tiene energia y edad suficientes."""
         # "Reglas de negocio: la probabilidad aumenta al amanecer y se detiene de noche."
-        if estado_tiempo and estado_tiempo.get("es_noche"):
-            return None
-        prob_base = 0.1
-        if estado_tiempo and estado_tiempo.get("fase") == "amanecer":
-            prob_base += 0.05
-        if self.energia > 100 and self.edad > 5 and random.random() < prob_base:
+        fase = estado_tiempo.get("fase") if estado_tiempo else None
+        if fase == "noche":
+            prob_base = 0.08
+        else:
+            prob_base = 0.18
+        if fase == "amanecer":
+            prob_base += 0.06
+        elif fase == "atardecer":
+            prob_base += 0.03
+        energia_umbral = 60 if fase in ("amanecer", "atardecer") else 70
+        if self.energia > energia_umbral and self.edad > 3 and random.random() < prob_base:
             self.energia -= 50  # Coste para evitar explosión poblacional.
             cria = Pez("Pejerrey", 50, 20)
             cria.rect.topleft = self.rect.topleft # "La cría aparece donde el padre."
@@ -353,6 +360,7 @@ class Trucha(Carnivoro):
         # "Llama al 'super' de Carnivoro, especializándolo."
         super().__init__(nombre, energia, tiempo_vida, presa_key="peces", hambre_threshold=80, ancho=35, alto=35)
         self.velocidad_frame = random.uniform(0.75, 1.75) 
+        self.consumo_base = 1.5
         
     def decidir_objetivo(self, listas_de_seres):
         """Sobrescribe el método de Carnivoro para añadir lógica de fuga."""
@@ -398,22 +406,21 @@ class Trucha(Carnivoro):
     def comer(self, pez):
         """Absorbe energia de la presa capturada."""
         if isinstance(pez, Pez):
-            energia_ganada = pez.energia // 2
+            energia_ganada = max(35, pez.energia // 2)
             self.energia += energia_ganada
             return energia_ganada
         return 0
     
     def reproducir(self, estado_tiempo):
         """Crea una nueva trucha si supera los requisitos."""
-        prob = 0.05
-        fase = None
-        if estado_tiempo:
-            fase = estado_tiempo.get("fase")
-            if fase == "noche":
-                return None
-            if fase in ("amanecer", "atardecer"):
-                prob += 0.03
-        if self.energia > 150 and self.edad > 8 and random.random() < prob:
+        prob = 0.1
+        fase = estado_tiempo.get("fase") if estado_tiempo else None
+        if fase == "noche":
+            prob *= 0.7
+        elif fase in ("amanecer", "atardecer"):
+            prob += 0.05
+        energia_umbral = 110 if fase in ("amanecer", "atardecer") else 120
+        if self.energia > energia_umbral and self.edad > 6 and random.random() < prob:
             self.energia -= 70 
             cria = Trucha("Trucha", 100, 25)
             cria.rect.topleft = self.rect.topleft
@@ -425,15 +432,30 @@ class Tiburon(Carnivoro):
 
     def __init__(self, nombre, energia, tiempo_vida):
         """Define la fuerza, tamaño y estado interno del tiburon."""
-        super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=45, alto=45)
+        super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=120, ancho=45, alto=45)
         self.velocidad_frame = random.uniform(0.4, 1.2) 
         self.velocidad_base = self.velocidad_frame
+        self.consumo_base = 0.8
         self.estado = 'vagando'  # "El Tiburón tiene un estado interno simple."
+        self.presa_secundaria = "peces"
 
     def decidir_objetivo(self, listas_de_seres):
         """Aplica la logica generica y marca si esta cazando o vagando."""
         # "Solo llama al 'super' y actualiza su estado."
         super().decidir_objetivo(listas_de_seres)
+        if not self.presa_objetivo and self.presa_secundaria:
+            lista_alt = listas_de_seres.get(self.presa_secundaria, [])
+            presa_alt = None
+            distancia_minima = float('inf')
+            for presa in lista_alt:
+                distancia = (self.rect.centerx - presa.rect.centerx) ** 2 + (self.rect.centery - presa.rect.centery) ** 2
+                if distancia < distancia_minima:
+                    distancia_minima = distancia
+                    presa_alt = presa
+            if presa_alt:
+                self.presa_objetivo = presa_alt
+                self.target_x = float(presa_alt.rect.centerx)
+                self.target_y = float(presa_alt.rect.centery)
         self.estado = 'cazando' if self.presa_objetivo else 'vagando'
 
     def update_movimiento_frame(self):
@@ -463,24 +485,29 @@ class Tiburon(Carnivoro):
     def comer(self, trucha):
         """Consume una trucha y libera el objetivo actual."""
         if isinstance(trucha, Trucha):
-            energia_ganada = trucha.energia // 2
+            energia_ganada = max(85, int(trucha.energia * 0.7))
             self.energia += energia_ganada
             self.presa_objetivo = None  # "Importante: suelta el objetivo."
+            self.estado = 'vagando'
+            return energia_ganada
+        if isinstance(trucha, Pez):
+            energia_ganada = max(40, int(trucha.energia * 0.6))
+            self.energia += energia_ganada
+            self.presa_objetivo = None
             self.estado = 'vagando'
             return energia_ganada
         return 0
 
     def reproducir(self, estado_tiempo):
         """Crea una nueva cría si alcanza los altos costos energéticos."""
-        prob = 0.03
-        if estado_tiempo:
-            if estado_tiempo.get("es_noche"):
-                prob = 0.05
-            elif estado_tiempo.get("fase") == "amanecer":
-                prob = 0.035
-            else:
-                prob = 0.02
-        if self.energia > 200 and self.edad > 10 and random.random() < prob:
+        prob = 0.1
+        fase = estado_tiempo.get("fase") if estado_tiempo else None
+        if estado_tiempo and estado_tiempo.get("es_noche"):
+            prob = 0.15
+        elif fase == "amanecer":
+            prob = 0.12
+        energia_umbral = 150 if (fase in ("amanecer", "atardecer")) else 170
+        if self.energia > energia_umbral and self.edad > 8 and random.random() < prob:
             self.energia -= 100 
             cria = Tiburon("Tiburón", 200, 30)
             cria.rect.topleft = self.rect.topleft
@@ -586,7 +613,8 @@ class Ecosistema:
             cria = pez.reproducir(estado_tiempo)
             if cria:
                 nuevas_crias_peces.append(cria) 
-                self.eventos_visuales.append(('nacer', cria.rect.center))
+                self.eventos_visuales.append(('aparearse', pez.rect.center, 'pez'))
+                self.eventos_visuales.append(('nacer', cria.rect.center, 'pez'))
             if pez.ha_muerto():
                 peces_muertos.append(pez)
                 self.eventos_visuales.append(('morir', pez.rect.center))
@@ -606,7 +634,8 @@ class Ecosistema:
             cria = trucha.reproducir(estado_tiempo)
             if cria:
                 nuevas_crias_truchas.append(cria)
-                self.eventos_visuales.append(('nacer', cria.rect.center))
+                self.eventos_visuales.append(('aparearse', trucha.rect.center, 'trucha'))
+                self.eventos_visuales.append(('nacer', cria.rect.center, 'trucha'))
             if trucha.ha_muerto():
                 truchas_muertas.append(trucha)
                 self.eventos_visuales.append(('morir', trucha.rect.center))
@@ -614,6 +643,7 @@ class Ecosistema:
         # "Bucle de Tiburones: Decidir, Cazar Truchas, Reproducirse, Morir."
         for tiburon in self.tiburones:
             tiburon.update_decision_turno(listas_de_seres)
+            consumio_presa = False
             for trucha in self.truchas:
                 if trucha not in truchas_muertas and tiburon.rect.colliderect(trucha.rect):
                     energia_ganada = tiburon.comer(trucha)
@@ -622,11 +652,23 @@ class Ecosistema:
                     if trucha not in truchas_muertas:
                         truchas_muertas.append(trucha)
                         self.eventos_visuales.append(('morir', trucha.rect.center))
+                    consumio_presa = True
                     break
+            if not consumio_presa:
+                for pez in self.peces:
+                    if pez not in peces_muertos and tiburon.rect.colliderect(pez.rect):
+                        energia_ganada = tiburon.comer(pez)
+                        if energia_ganada > 0:
+                            self.eventos_visuales.append(('comer_depredador', tiburon.rect.center, energia_ganada))
+                        if pez not in peces_muertos:
+                            peces_muertos.append(pez)
+                            self.eventos_visuales.append(('morir', pez.rect.center))
+                        break
             cria = tiburon.reproducir(estado_tiempo)
             if cria:
                 nuevas_crias_tiburones.append(cria)
-                self.eventos_visuales.append(('nacer', cria.rect.center))
+                self.eventos_visuales.append(('aparearse', tiburon.rect.center, 'tiburon'))
+                self.eventos_visuales.append(('nacer', cria.rect.center, 'tiburon'))
             if tiburon.ha_muerto():
                 tiburones_muertos.append(tiburon)
                 self.eventos_visuales.append(('morir', tiburon.rect.center))
