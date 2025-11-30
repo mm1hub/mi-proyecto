@@ -18,6 +18,8 @@ WIDTH, HEIGHT = 1024, 768      # Resolucion base de la ventana (vista reutiliza)
 FPS = 60                       # Se subio a 60 para dar mas suavidad visual.
 TURNO_DURACION_MS = 1000       # Cada segundo se ejecuta un turno discreto de IA.
 GRID_CELDA = 64                
+PANEL_ANCHO = 280              # Panel lateral reservado para UI.
+AREA_JUEGO_ANCHO = WIDTH - PANEL_ANCHO  # Espacio útil para simular criaturas.
 
 # Parámetros del ciclo día/noche (controlan el reloj interno del ecosistema)
 CICLO_DIA_TURNOS = 32          # Cantidad de turnos de IA que dura un día completo.
@@ -105,7 +107,7 @@ class Animal(ABC):
         
         # "El 'rect' es la posición oficial en el mundo, en píxeles enteros."
         self.rect = pygame.Rect(
-            random.randint(0, max(0, WIDTH - ancho)),
+            random.randint(0, max(0, AREA_JUEGO_ANCHO - ancho)),
             random.randint(0, max(0, HEIGHT - alto)),
             ancho,
             alto,
@@ -194,7 +196,7 @@ class Animal(ABC):
     # la lógica de 'mantenerse dentro de la pantalla'."
     def _limites_pantalla(self):
         """Retorna los valores maximos permitidos para topleft."""
-        return max(0, WIDTH - self.rect.width), max(0, HEIGHT - self.rect.height)
+        return max(0, AREA_JUEGO_ANCHO - self.rect.width), max(0, HEIGHT - self.rect.height)
 
     def _limitar_objetivo_a_pantalla(self):
         """Evita que el objetivo caiga fuera del rango visible."""
@@ -219,7 +221,7 @@ class Planta:
         self.nombre = nombre
         self.energia = energia
         self.rect = pygame.Rect(
-            random.randint(0, max(0, WIDTH - 14)),
+            random.randint(0, max(0, AREA_JUEGO_ANCHO - 14)),
             random.randint(0, max(0, HEIGHT - 14)),
             14,
             14,
@@ -313,7 +315,7 @@ class Pez(Animal):
             self.target_y = float(planta_cercana.rect.centery)
 
         # "El 'vagar' (si no pasa nada) se maneja en update_movimiento_frame."
-        self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
+        self.target_x = max(0, min(self.target_x, AREA_JUEGO_ANCHO - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
 
 class Carnivoro(Animal):
@@ -357,7 +359,7 @@ class Carnivoro(Animal):
             self.target_x = float(presa_cercana.rect.centerx)
             self.target_y = float(presa_cercana.rect.centery)
 
-        self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
+        self.target_x = max(0, min(self.target_x, AREA_JUEGO_ANCHO - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
 
 class Trucha(Carnivoro):
@@ -408,7 +410,7 @@ class Trucha(Carnivoro):
                     # "Al amanecer tienden a subir a zonas iluminadas."
                     self.target_y = float(max(0, self.rect.y - 50))
             
-        self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
+        self.target_x = max(0, min(self.target_x, AREA_JUEGO_ANCHO - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
 
     def comer(self, pez):

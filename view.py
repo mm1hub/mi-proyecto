@@ -14,7 +14,7 @@ from logic import (
     # Importar nuevos colores de UI
     Color, COLOR_PANEL_FONDO, COLOR_TEXTO_TITULO, COLOR_TEXTO_NORMAL,
     COLOR_BARRA_FONDO, COLOR_BARRA_PROGRESO, COLOR_SEPARADOR,
-    WIDTH, HEIGHT, # Importar dimensiones
+    WIDTH, HEIGHT, PANEL_ANCHO, # Importar dimensiones
     CICLO_DIA_TURNOS, FRACCION_AMANECER, FRACCION_ATARDECER,
 )
 
@@ -168,7 +168,7 @@ class Vista:
 
         # --- Definición del Panel Lateral (UI) ---
         # Definimos el 'layout' de la UI aquí. Usamos 'Rects' para clics y dibujo.
-        self.panel_ancho = 280
+        self.panel_ancho = PANEL_ANCHO
         self.panel_rect = pygame.Rect(self.width - self.panel_ancho, 0, self.panel_ancho, self.height)
         self.panel_padding = 20
 
