@@ -24,6 +24,14 @@ CICLO_DIA_TURNOS = 32          # Cantidad de turnos de IA que dura un día compl
 FRACCION_AMANECER = 0.18       # Porción inicial dedicada al amanecer.
 FRACCION_ATARDECER = 0.68      # Punto a partir del cual el cielo se vuelve nocturno.
 
+# Rango permitido por especie para evitar extinciones o sobrepoblación
+POBLACION_LIMITES = {
+    "plantas": {"min": 20, "max": 70},
+    "peces": {"min": 12, "max": 40},
+    "truchas": {"min": 5, "max": 18},
+    "tiburones": {"min": 2, "max": 10},
+}
+
 # Colores (usados por la Vista, pero importados desde aquí)
 # "La Lógica define los colores. La Vista solo los usa para pintar."
 BLANCO = Color(255, 255, 255)
@@ -547,6 +555,7 @@ class Ecosistema:
         self.tiburones = [Tiburon("Tiburon", 200, 30) for _ in range(n_tiburones)]
         self.turno_global = 0
         self._actualizar_estado_tiempo(avanzar=False)
+        self._balancear_poblaciones()
 
     def _fase_por_progreso(self, progreso):
         """Determina la fase (amanecer/día/atardecer/noche) a partir del avance normalizado."""
@@ -611,7 +620,7 @@ class Ecosistema:
                     plantas_comidas.append(planta)
                     break # "El pez solo come una planta por turno."
             cria = pez.reproducir(estado_tiempo)
-            if cria:
+            if cria and (len(self.peces) + len(nuevas_crias_peces) < POBLACION_LIMITES["peces"]["max"]):
                 nuevas_crias_peces.append(cria) 
                 self.eventos_visuales.append(('aparearse', pez.rect.center, 'pez'))
                 self.eventos_visuales.append(('nacer', cria.rect.center, 'pez'))
@@ -632,7 +641,7 @@ class Ecosistema:
                         self.eventos_visuales.append(('morir', pez.rect.center))
                     break
             cria = trucha.reproducir(estado_tiempo)
-            if cria:
+            if cria and (len(self.truchas) + len(nuevas_crias_truchas) < POBLACION_LIMITES["truchas"]["max"]):
                 nuevas_crias_truchas.append(cria)
                 self.eventos_visuales.append(('aparearse', trucha.rect.center, 'trucha'))
                 self.eventos_visuales.append(('nacer', cria.rect.center, 'trucha'))
@@ -665,7 +674,7 @@ class Ecosistema:
                             self.eventos_visuales.append(('morir', pez.rect.center))
                         break
             cria = tiburon.reproducir(estado_tiempo)
-            if cria:
+            if cria and (len(self.tiburones) + len(nuevas_crias_tiburones) < POBLACION_LIMITES["tiburones"]["max"]):
                 nuevas_crias_tiburones.append(cria)
                 self.eventos_visuales.append(('aparearse', tiburon.rect.center, 'tiburon'))
                 self.eventos_visuales.append(('nacer', cria.rect.center, 'tiburon'))
@@ -692,6 +701,7 @@ class Ecosistema:
         self.peces.extend(nuevas_crias_peces)
         self.truchas.extend(nuevas_crias_truchas)
         self.tiburones.extend(nuevas_crias_tiburones)
+        self._balancear_poblaciones()
 
         fase_actual = estado_tiempo.get("fase") if estado_tiempo else "dia"
         if fase_actual in ("amanecer", "dia"):
@@ -700,7 +710,8 @@ class Ecosistema:
             prob_regeneracion = 0.6
         else:
             prob_regeneracion = 0.35
-        if random.random() < prob_regeneracion:
+        if (len(self.plantas) < POBLACION_LIMITES["plantas"]["max"] and
+                random.random() < prob_regeneracion):
             # "Regeneración de recursos dependiente de la luz solar."
             self.plantas.append(Planta("Alga", 20))
             
@@ -719,3 +730,50 @@ class Ecosistema:
         todos_los_animales = self.peces + self.truchas + self.tiburones
         for animal in todos_los_animales:
             animal.update_movimiento_frame()
+
+    def _balancear_poblaciones(self):
+        """Garantiza que cada especie se mantenga dentro de los límites configurados."""
+        self._ajustar_especie(
+            'plantas',
+            lambda: Planta("Alga", 20),
+            POBLACION_LIMITES["plantas"]["min"],
+            POBLACION_LIMITES["plantas"]["max"],
+            icono=None,
+        )
+        self._ajustar_especie(
+            'peces',
+            lambda: Pez("Pejerrey", 70, 120),
+            POBLACION_LIMITES["peces"]["min"],
+            POBLACION_LIMITES["peces"]["max"],
+            icono='pez',
+        )
+        self._ajustar_especie(
+            'truchas',
+            lambda: Trucha("Trucha", 120, 180),
+            POBLACION_LIMITES["truchas"]["min"],
+            POBLACION_LIMITES["truchas"]["max"],
+            icono='trucha',
+        )
+        self._ajustar_especie(
+            'tiburones',
+            lambda: Tiburon("Tiburon", 200, 30),
+            POBLACION_LIMITES["tiburones"]["min"],
+            POBLACION_LIMITES["tiburones"]["max"],
+            icono='tiburon',
+        )
+
+    def _ajustar_especie(self, atributo, factory, minimo, maximo, icono=None):
+        """Recorta o refuerza una lista concreta según limites min/max."""
+        lista = getattr(self, atributo)
+        exceso = len(lista) - maximo
+        if exceso > 0:
+            random.shuffle(lista)
+            for _ in range(exceso):
+                lista.pop()
+        deficit = minimo - len(lista)
+        if deficit > 0:
+            for _ in range(deficit):
+                nuevo = factory()
+                lista.append(nuevo)
+                if icono:
+                    self.eventos_visuales.append(('nacer', nuevo.rect.center, icono))
