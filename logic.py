@@ -14,7 +14,7 @@ from pygame import Color
 # ---------------------------------
 # "Definimos las constantes aquí. Si queremos cambiar la velocidad de la IA
 # o la resolución, lo hacemos en UN solo lugar."
-WIDTH, HEIGHT = 1024, 768      # Resolucion base de la ventana (vista reutiliza).
+WIDTH, HEIGHT = 1280, 900      # Resolucion base de la ventana (vista reutiliza).
 FPS = 60                       # Se subio a 60 para dar mas suavidad visual.
 TURNO_DURACION_MS = 1000       # Cada segundo se ejecuta un turno discreto de IA.
 GRID_CELDA = 64                
@@ -147,12 +147,23 @@ class Animal(ABC):
     def reproducir(self, estado_tiempo):
         """Devuelve una nueva cría (si aplica) usando el contexto del ciclo."""
 
+    def _factor_velocidad_por_fase(self, estado_tiempo):
+        """Permite que cada especie ajuste su velocidad según la fase."""
+        return 1.0
+
+    def _factor_consumo_por_fase(self, estado_tiempo):
+        """Permite regular el coste energético según el contexto."""
+        return 1.0
+
     def update_decision_turno(self, listas_de_seres):
         """Actualiza energia/edad y delega la seleccion de objetivos."""
         # "Este es el 'tick' de IA (lento). Consume energía y envejece."
-        self.energia -= self.consumo_base
-        self.edad += 1     
         self.estado_tiempo = listas_de_seres.get("estado_tiempo")
+        velocidad_factor = self._factor_velocidad_por_fase(self.estado_tiempo)
+        self.velocidad_frame = max(0.2, min(3.0, self.velocidad_base * velocidad_factor))
+        consumo = self.consumo_base * self._factor_consumo_por_fase(self.estado_tiempo)
+        self.energia -= consumo
+        self.edad += 1     
         self.decidir_objetivo(listas_de_seres) # "Aquí el animal 'piensa'."
 
     def update_movimiento_frame(self):
@@ -237,6 +248,29 @@ class Pez(Animal):
         self.velocidad_base = self.velocidad_frame
         self.consumo_base = 1.0
 
+    def _factor_velocidad_por_fase(self, estado_tiempo):
+        if not estado_tiempo:
+            return 1.0
+        fase = estado_tiempo.get("fase")
+        if estado_tiempo.get("es_noche"):
+            return 0.55
+        if fase == "amanecer":
+            return 1.25
+        if fase == "dia":
+            return 1.1
+        if fase == "atardecer":
+            return 0.9
+        return 1.0
+
+    def _factor_consumo_por_fase(self, estado_tiempo):
+        if not estado_tiempo:
+            return 1.0
+        if estado_tiempo.get("es_noche"):
+            return 0.6
+        if estado_tiempo.get("fase") == "amanecer":
+            return 1.1
+        return 1.0
+
     def comer(self, planta):
         """Consume plantas y devuelve la energia obtenida."""
         if isinstance(planta, Planta):
@@ -276,6 +310,7 @@ class Pez(Animal):
         rango_vision_planta = 100 * 100     # optimización: evitamos 'sqrt' (raíz cuadrada)."
         estado_tiempo = self.estado_tiempo or {}
         es_noche = estado_tiempo.get("es_noche", False)
+        fase = estado_tiempo.get("fase")
         if es_noche:
             rango_vision_planta = 80 * 80  # Se reduce la visibilidad con poca luz.
         depredador_cercano = None
@@ -299,17 +334,29 @@ class Pez(Animal):
                     planta_cercana = planta
         
         # "3. Tomar decisión."
+        refugio_x = AREA_JUEGO_ANCHO * 0.25
+
         if depredador_cercano:
             # "Lógica de huida: calcula un vector opuesto."
             if self.rect.centerx < depredador_cercano.rect.centerx: self.target_x = self.rect.x - 70
             else: self.target_x = self.rect.x + 70
             if self.rect.centery < depredador_cercano.rect.centery: self.target_y = self.rect.y - 70
             else: self.target_y = self.rect.y + 70
-        elif es_noche and self.energia > 40:
-            # "Por la noche se refugia en zonas profundas en lugar de exponerse."
-            self.target_x = float(self.rect.x + random.randint(-30, 30))
-            self.target_y = float(min(HEIGHT - self.rect.height, self.rect.y + 60))
-        elif (self.energia < 70 or (es_noche and self.energia < 40)) and planta_cercana:
+        elif es_noche:
+            if self.energia < 40 and planta_cercana:
+                self.target_x = float(planta_cercana.rect.centerx)
+                self.target_y = float(min(HEIGHT - self.rect.height, planta_cercana.rect.centery + 25))
+            else:
+                self.target_x = float(max(5, min(refugio_x, self.rect.x + random.randint(-40, 40))))
+                self.target_y = float(min(HEIGHT - self.rect.height, HEIGHT * 0.85 + random.randint(-15, 15)))
+        elif fase == "amanecer" and planta_cercana:
+            self.target_x = float(planta_cercana.rect.centerx)
+            self.target_y = float(max(0, planta_cercana.rect.centery - 20))
+        elif fase == "atardecer":
+            # "Durante el atardecer se desplaza hacia refugios antes de la noche."
+            self.target_x = float(max(5, min(refugio_x * 1.5, self.rect.x + random.randint(-50, 50))))
+            self.target_y = float(min(HEIGHT - self.rect.height, HEIGHT * 0.7 + random.randint(-30, 30)))
+        elif (self.energia < 70 or (fase == "dia" and self.energia < 80)) and planta_cercana:
             # "Lógica de caza (plantas): ir hacia el objetivo."
             self.target_x = float(planta_cercana.rect.centerx)
             self.target_y = float(planta_cercana.rect.centery)
@@ -328,6 +375,29 @@ class Carnivoro(Animal):
         self.presa_key = presa_key # "Ej: 'peces' o 'truchas'"
         self.hambre_threshold = hambre_threshold
         self.presa_objetivo = None # "Guarda el objetivo actual."
+
+    def _factor_velocidad_por_fase(self, estado_tiempo):
+        factor = super()._factor_velocidad_por_fase(estado_tiempo)
+        if not estado_tiempo:
+            return factor
+        if estado_tiempo.get("es_noche"):
+            return factor * 1.2
+        fase = estado_tiempo.get("fase")
+        if fase == "dia":
+            return factor * 0.95
+        if fase in ("amanecer", "atardecer"):
+            return factor * 1.05
+        return factor
+
+    def _factor_consumo_por_fase(self, estado_tiempo):
+        factor = super()._factor_consumo_por_fase(estado_tiempo)
+        if not estado_tiempo:
+            return factor
+        if estado_tiempo.get("es_noche"):
+            return factor * 1.15
+        if estado_tiempo.get("fase") == "dia":
+            return factor * 0.9
+        return factor
         
     def decidir_objetivo(self, listas_de_seres):
         """Busca la presa mas cercana solo cuando el hambre supera el umbral."""
@@ -371,6 +441,29 @@ class Trucha(Carnivoro):
         super().__init__(nombre, energia, tiempo_vida, presa_key="peces", hambre_threshold=80, ancho=35, alto=35)
         self.velocidad_frame = random.uniform(0.75, 1.75) 
         self.consumo_base = 1.5
+
+    def _factor_velocidad_por_fase(self, estado_tiempo):
+        factor = super()._factor_velocidad_por_fase(estado_tiempo)
+        if not estado_tiempo:
+            return factor
+        fase = estado_tiempo.get("fase")
+        if estado_tiempo.get("es_noche"):
+            return factor * 0.75
+        if fase == "amanecer":
+            return factor * 1.2
+        if fase == "atardecer":
+            return factor * 1.1
+        return factor
+
+    def _factor_consumo_por_fase(self, estado_tiempo):
+        factor = super()._factor_consumo_por_fase(estado_tiempo)
+        if not estado_tiempo:
+            return factor
+        if estado_tiempo.get("es_noche"):
+            return factor * 0.85
+        if estado_tiempo.get("fase") == "amanecer":
+            return factor * 1.05
+        return factor
         
     def decidir_objetivo(self, listas_de_seres):
         """Sobrescribe el método de Carnivoro para añadir lógica de fuga."""
@@ -404,11 +497,21 @@ class Trucha(Carnivoro):
             super().decidir_objetivo(listas_de_seres)
             if not self.presa_objetivo:
                 if es_noche:
-                    # "Por la noche patrullan el fondo y reducen velocidad vertical."
-                    self.target_y = float(min(HEIGHT - self.rect.height, self.rect.y + 30))
+                    if self.energia > self.hambre_threshold:
+                        self.target_x = float(min(AREA_JUEGO_ANCHO - self.rect.width, AREA_JUEGO_ANCHO * 0.7 + random.randint(-40, 40)))
+                        self.target_y = float(min(HEIGHT - self.rect.height, HEIGHT * 0.8 + random.randint(-20, 20)))
+                    else:
+                        self.target_y = float(min(HEIGHT - self.rect.height, self.rect.y + 45))
                 elif fase == "amanecer":
                     # "Al amanecer tienden a subir a zonas iluminadas."
-                    self.target_y = float(max(0, self.rect.y - 50))
+                    self.target_y = float(max(0, self.rect.y - 60))
+                    self.target_x = float(min(AREA_JUEGO_ANCHO - self.rect.width, self.rect.x + random.randint(-35, 35)))
+                elif fase == "dia":
+                    self.target_x = float(min(AREA_JUEGO_ANCHO - self.rect.width, AREA_JUEGO_ANCHO * 0.6 + random.randint(-80, 80)))
+                    self.target_y = float(max(HEIGHT * 0.3, min(HEIGHT * 0.6, self.rect.y + random.randint(-50, 50))))
+                elif fase == "atardecer":
+                    self.target_y = float(min(HEIGHT - self.rect.height, HEIGHT * 0.75 + random.randint(-25, 25)))
+                    self.target_x = float(max(0, self.rect.x + random.randint(-60, 60)))
             
         self.target_x = max(0, min(self.target_x, AREA_JUEGO_ANCHO - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
@@ -447,25 +550,47 @@ class Tiburon(Carnivoro):
         self.velocidad_base = self.velocidad_frame
         self.consumo_base = 0.8
         self.estado = 'vagando'  # "El Tiburón tiene un estado interno simple."
-        self.presa_secundaria = "peces"
+
+    def _factor_velocidad_por_fase(self, estado_tiempo):
+        factor = super()._factor_velocidad_por_fase(estado_tiempo)
+        if not estado_tiempo:
+            return factor
+        if estado_tiempo.get("es_noche"):
+            return factor * 1.15
+        if estado_tiempo.get("fase") == "amanecer":
+            return factor * 1.1
+        if estado_tiempo.get("fase") == "dia":
+            return factor * 0.9
+        return factor
+
+    def _factor_consumo_por_fase(self, estado_tiempo):
+        factor = super()._factor_consumo_por_fase(estado_tiempo)
+        if not estado_tiempo:
+            return factor
+        if estado_tiempo.get("es_noche"):
+            return factor * 1.1
+        if estado_tiempo.get("fase") == "dia":
+            return factor * 0.9
+        return factor
 
     def decidir_objetivo(self, listas_de_seres):
         """Aplica la logica generica y marca si esta cazando o vagando."""
         # "Solo llama al 'super' y actualiza su estado."
         super().decidir_objetivo(listas_de_seres)
-        if not self.presa_objetivo and self.presa_secundaria:
-            lista_alt = listas_de_seres.get(self.presa_secundaria, [])
-            presa_alt = None
-            distancia_minima = float('inf')
-            for presa in lista_alt:
-                distancia = (self.rect.centerx - presa.rect.centerx) ** 2 + (self.rect.centery - presa.rect.centery) ** 2
-                if distancia < distancia_minima:
-                    distancia_minima = distancia
-                    presa_alt = presa
-            if presa_alt:
-                self.presa_objetivo = presa_alt
-                self.target_x = float(presa_alt.rect.centerx)
-                self.target_y = float(presa_alt.rect.centery)
+        estado_tiempo = self.estado_tiempo or {}
+        fase = estado_tiempo.get("fase")
+        es_noche = estado_tiempo.get("es_noche", False)
+        if not self.presa_objetivo:
+            if es_noche:
+                self.target_x = float(max(0, min(AREA_JUEGO_ANCHO - self.rect.width, self.rect.x + random.randint(-150, 150))))
+                self.target_y = float(min(HEIGHT - self.rect.height, HEIGHT * 0.65 + random.randint(-50, 50)))
+            elif fase == "amanecer":
+                self.target_x = float(min(AREA_JUEGO_ANCHO - self.rect.width, self.rect.x + random.randint(-90, 90)))
+                self.target_y = float(max(HEIGHT * 0.25, self.rect.y - random.randint(20, 60)))
+            elif fase == "dia":
+                self.target_y = float(max(HEIGHT * 0.2, min(HEIGHT * 0.5, self.rect.y + random.randint(-60, 60))))
+            elif fase == "atardecer":
+                self.target_y = float(min(HEIGHT - self.rect.height, HEIGHT * 0.75 + random.randint(-40, 40)))
         self.estado = 'cazando' if self.presa_objetivo else 'vagando'
 
     def update_movimiento_frame(self):
@@ -473,13 +598,6 @@ class Tiburon(Carnivoro):
         # "Esta es la IA especial del Tiburón.
         # Sobrescribe el movimiento, no la decisión."
         estado_tiempo = self.estado_tiempo or {}
-        if estado_tiempo:
-            if estado_tiempo.get("es_noche"):
-                self.velocidad_frame = min(2.0, self.velocidad_base * 1.25)
-            elif estado_tiempo.get("fase") == "amanecer":
-                self.velocidad_frame = min(2.0, self.velocidad_base * 1.1)
-            else:
-                self.velocidad_frame = max(0.3, self.velocidad_base * 0.9)
         if self.estado == 'cazando' and self.presa_objetivo:
             presa_rect = getattr(self.presa_objetivo, 'rect', None)
             if presa_rect:
@@ -487,23 +605,25 @@ class Tiburon(Carnivoro):
                 # Esto es 'Homing' (persecución), no 'Interpolación' (ir a un punto fijo)."
                 self.target_x = float(presa_rect.centerx)
                 self.target_y = float(presa_rect.centery)
+        else:
+            if estado_tiempo.get("es_noche") and random.random() < 0.05:
+                self.target_x = float(max(0, min(AREA_JUEGO_ANCHO - self.rect.width, self.rect.x + random.randint(-180, 180))))
+                self.target_y = float(min(HEIGHT - self.rect.height, HEIGHT * 0.7 + random.randint(-60, 60)))
+            elif estado_tiempo.get("fase") == "dia" and random.random() < 0.02:
+                self.target_y = float(max(0, self.rect.y - random.randint(30, 80)))
+            elif estado_tiempo.get("fase") == "amanecer" and random.random() < 0.03:
+                self.target_x = float(min(AREA_JUEGO_ANCHO - self.rect.width, self.rect.x + random.randint(-100, 100)))
         
         # "Y después de ajustar el objetivo, llama al 'super' para
         # que ejecute el movimiento de interpolación normal."
         super().update_movimiento_frame()
         
-    def comer(self, trucha):
+    def comer(self, presa):
         """Consume una trucha y libera el objetivo actual."""
-        if isinstance(trucha, Trucha):
-            energia_ganada = max(85, int(trucha.energia * 0.7))
+        if isinstance(presa, Trucha):
+            energia_ganada = max(85, int(presa.energia * 0.7))
             self.energia += energia_ganada
             self.presa_objetivo = None  # "Importante: suelta el objetivo."
-            self.estado = 'vagando'
-            return energia_ganada
-        if isinstance(trucha, Pez):
-            energia_ganada = max(40, int(trucha.energia * 0.6))
-            self.energia += energia_ganada
-            self.presa_objetivo = None
             self.estado = 'vagando'
             return energia_ganada
         return 0
@@ -654,7 +774,6 @@ class Ecosistema:
         # "Bucle de Tiburones: Decidir, Cazar Truchas, Reproducirse, Morir."
         for tiburon in self.tiburones:
             tiburon.update_decision_turno(listas_de_seres)
-            consumio_presa = False
             for trucha in self.truchas:
                 if trucha not in truchas_muertas and tiburon.rect.colliderect(trucha.rect):
                     energia_ganada = tiburon.comer(trucha)
@@ -663,18 +782,7 @@ class Ecosistema:
                     if trucha not in truchas_muertas:
                         truchas_muertas.append(trucha)
                         self.eventos_visuales.append(('morir', trucha.rect.center))
-                    consumio_presa = True
                     break
-            if not consumio_presa:
-                for pez in self.peces:
-                    if pez not in peces_muertos and tiburon.rect.colliderect(pez.rect):
-                        energia_ganada = tiburon.comer(pez)
-                        if energia_ganada > 0:
-                            self.eventos_visuales.append(('comer_depredador', tiburon.rect.center, energia_ganada))
-                        if pez not in peces_muertos:
-                            peces_muertos.append(pez)
-                            self.eventos_visuales.append(('morir', pez.rect.center))
-                        break
             cria = tiburon.reproducir(estado_tiempo)
             if cria and (len(self.tiburones) + len(nuevas_crias_tiburones) < POBLACION_LIMITES["tiburones"]["max"]):
                 nuevas_crias_tiburones.append(cria)
