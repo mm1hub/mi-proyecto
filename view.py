@@ -14,7 +14,8 @@ from logic import (
     # Importar nuevos colores de UI
     Color, COLOR_PANEL_FONDO, COLOR_TEXTO_TITULO, COLOR_TEXTO_NORMAL,
     COLOR_BARRA_FONDO, COLOR_BARRA_PROGRESO, COLOR_SEPARADOR,
-    WIDTH, HEIGHT # Importar dimensiones
+    WIDTH, HEIGHT, # Importar dimensiones
+    CICLO_DIA_TURNOS, FRACCION_AMANECER, FRACCION_ATARDECER,
 )
 
 """Capa de presentación: dibuja el ecosistema y maneja la interfaz de usuario."""
@@ -216,6 +217,8 @@ class Vista:
         
         # --- Almacén de Estadísticas (de main.py) ---
         self.turn_progress = 0.0
+        self._ultima_fase_renderizada = None
+        self._ultimo_dia_renderizado = None
 
     def _crear_fondo_estatico(self, width, height):
         """Genera un degradado simple que simula profundidad bajo el agua."""
@@ -230,6 +233,57 @@ class Vista:
             color_interpolado = (r, g, b)
             pygame.draw.line(fondo, color_interpolado, (0, y), (width, y))
         return fondo
+
+    def _dibujar_filtro_luz(self, estado_tiempo, offset):
+        """Aplica un tinte dinámico para simular ciclo día/noche."""
+        if not estado_tiempo:
+            return
+        area_ancho = max(0, self.panel_rect.left)
+        if area_ancho <= 0:
+            return
+        factor_luz = estado_tiempo.get("factor_luz", 1.0)
+        oscuridad = max(0.0, 1.0 - factor_luz)
+        if oscuridad > 0:
+            overlay = pygame.Surface((area_ancho, self.height), pygame.SRCALPHA)
+            alpha = int(180 * oscuridad)
+            overlay.fill((10, 20, 40, alpha))
+            self.screen.blit(overlay, offset)
+        fase = estado_tiempo.get("fase")
+        if fase in ("amanecer", "atardecer"):
+            progreso = estado_tiempo.get("progreso_dia", 0.0)
+            if fase == "amanecer":
+                rango = max(0.01, FRACCION_AMANECER)
+                intensidad = min(1.0, progreso / rango)
+            else:
+                rango = max(0.01, 1.0 - FRACCION_ATARDECER)
+                intensidad = min(1.0, (1.0 - progreso) / rango)
+            if intensidad > 0:
+                resplandor = pygame.Surface((area_ancho, self.height), pygame.SRCALPHA)
+                color = (255, 184, 108, int(90 * intensidad))
+                resplandor.fill(color)
+                self.screen.blit(resplandor, offset)
+
+    def _verificar_transiciones_ciclo(self, estado_tiempo):
+        """Genera partículas simbólicas cuando cambia el día o la fase."""
+        if not estado_tiempo:
+            return
+        dia_actual = estado_tiempo.get("dia")
+        fase_actual = estado_tiempo.get("fase")
+        centro_x = max(60, self.panel_rect.left // 2)
+        if dia_actual is not None:
+            if self._ultimo_dia_renderizado is None:
+                self._ultimo_dia_renderizado = dia_actual
+            elif dia_actual != self._ultimo_dia_renderizado:
+                self.particulas.append(Particula(f"Día {dia_actual}", (centro_x, 60), COLOR_TEXTO_TITULO, vida=90, velocidad_y=-0.2))
+                self._ultimo_dia_renderizado = dia_actual
+        if fase_actual:
+            if self._ultima_fase_renderizada is None:
+                self._ultima_fase_renderizada = fase_actual
+            elif fase_actual != self._ultima_fase_renderizada:
+                simbolo = "🌙" if estado_tiempo.get("es_noche") else "☀️"
+                texto = f"{simbolo} {fase_actual.capitalize()}"
+                self.particulas.append(Particula(texto, (centro_x, 95), COLOR_TEXTO_TITULO, vida=70, velocidad_y=-0.15))
+                self._ultima_fase_renderizada = fase_actual
 
     def cargar_assets_flexible(self):
         """Un cargador robusto: busca assets y provee un 'fallback' a formas básicas."""
@@ -388,10 +442,17 @@ class Vista:
         if self.screen_shake > 0:
             self.screen_shake -= 1 # El 'shake' se consume
             shake_offset = (random.randint(-4, 4), random.randint(-4, 4))
-            
+        estado_tiempo = None
+        if hasattr(ecosistema, "get_estado_tiempo"):
+            try:
+                estado_tiempo = ecosistema.get_estado_tiempo()
+            except Exception:
+                estado_tiempo = None
+        
         # 1. Dibujar la simulación (fondo y entidades)
         # Aplicamos el 'shake_offset' al fondo.
         self.screen.blit(self.fondo_superficie, shake_offset)
+        self._dibujar_filtro_luz(estado_tiempo, shake_offset)
         
         # Actualizar y crear burbujas (lógica puramente visual)
         for i in range(len(self.burbujas) - 1, -1, -1):
@@ -404,13 +465,17 @@ class Vista:
         if self.sim_running and not self.sim_paused:
             plantas, peces, truchas, tiburones = ecosistema.get_all_entities()
             animales_que_respiran = peces + truchas
-            if random.random() < 0.05: # 5% de chance por frame
+            luz_actual = estado_tiempo.get("factor_luz", 1.0) if estado_tiempo else 1.0
+            prob_burbuja = 0.02 + 0.04 * luz_actual
+            if random.random() < prob_burbuja: # Chance modulada por la luz
                 if animales_que_respiran:
                     animal = random.choice(animales_que_respiran)
                     if animal.rect.centerx < self.panel_rect.left:
                         self.burbujas.append(Burbuja(animal.rect.centerx, animal.rect.top))
         else:
             plantas, peces, truchas, tiburones = [],[],[],[] # Vacío si no corre
+
+        self._verificar_transiciones_ciclo(estado_tiempo)
 
         # Punto clave: Z-Sorting. Dibujamos las entidades de 'atrás' (Y más baja) primero.
         # Esto da una ilusión de profundidad.
@@ -585,11 +650,33 @@ class Vista:
         rect_prog = pygame.Rect(px, py, ancho_total, 8)
         self._dibujar_barra_progreso(rect_prog, self.turn_progress, COLOR_RESUME, COLOR_BARRA_FONDO)
         py += 30
+        py = self._dibujar_info_tiempo(ecosistema, py)
         
         # --- (Req 1) "Tiempo Transcurrido" y "Especie Dominante" ELIMINADOS ---
         
         # 3. Barras de Población (Leídas en vivo del modelo 'ecosistema')
         self._dibujar_stats_poblacion(ecosistema, py)
+
+    def _dibujar_info_tiempo(self, ecosistema, start_y):
+        """Dibuja el estado actual del ciclo día/noche en el panel."""
+        try:
+            estado_tiempo = ecosistema.get_estado_tiempo()
+        except AttributeError:
+            return start_y
+        if not estado_tiempo:
+            return start_y
+        px = self.panel_rect.x + self.panel_padding
+        ancho_total = self.panel_rect.width - (self.panel_padding * 2)
+        dia = estado_tiempo.get("dia", 1)
+        fase = estado_tiempo.get("fase", "dia").capitalize()
+        descripcion = self.font_pequeno.render(f"Día {dia} · {fase}", True, COLOR_TEXTO_NORMAL)
+        self.screen.blit(descripcion, (px, start_y))
+        start_y += 20
+        progreso = estado_tiempo.get("progreso_dia", 0.0)
+        rect_dia = pygame.Rect(px, start_y, ancho_total, 8)
+        self._dibujar_barra_progreso(rect_dia, progreso, COLOR_BARRA_PROGRESO, COLOR_BARRA_FONDO)
+        start_y += 30
+        return start_y
 
     def _dibujar_stats_poblacion(self, ecosistema, start_y):
         """Dibuja las barras de población (Req 3: Barras de Progreso)."""

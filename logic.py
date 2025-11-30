@@ -1,5 +1,6 @@
 ﻿import pygame
 import random
+import math
 from abc import ABC, abstractmethod # Usamos ABC para definir 'interfaces'
 from pygame import Color 
 
@@ -17,6 +18,11 @@ WIDTH, HEIGHT = 1024, 768      # Resolucion base de la ventana (vista reutiliza)
 FPS = 60                       # Se subio a 60 para dar mas suavidad visual.
 TURNO_DURACION_MS = 1000       # Cada segundo se ejecuta un turno discreto de IA.
 GRID_CELDA = 64                
+
+# Parámetros del ciclo día/noche (controlan el reloj interno del ecosistema)
+CICLO_DIA_TURNOS = 32          # Cantidad de turnos de IA que dura un día completo.
+FRACCION_AMANECER = 0.18       # Porción inicial dedicada al amanecer.
+FRACCION_ATARDECER = 0.68      # Punto a partir del cual el cielo se vuelve nocturno.
 
 # Colores (usados por la Vista, pero importados desde aquí)
 # "La Lógica define los colores. La Vista solo los usa para pintar."
@@ -102,11 +108,13 @@ class Animal(ABC):
         self.target_y = float(self.rect.y)
         
         self.velocidad_frame = random.uniform(0.5, 1.5) 
+        self.velocidad_base = self.velocidad_frame
 
         self.pos_x = float(self.rect.x)  # La posición actual (continua)
         self.pos_y = float(self.rect.y)
         
         self.direccion_h = 1 # 1 = derecha, -1 = izquierda (para la Vista)
+        self.estado_tiempo = None
         
         # ... (recortes de seguridad) ...
         if self.rect.right > WIDTH: self.rect.right = WIDTH
@@ -125,14 +133,15 @@ class Animal(ABC):
         """Resuelve como aumenta energia cuando la especie come algo."""
 
     @abstractmethod
-    def reproducir(self):
-        """Devuelve una nueva cria cuando la especie se reproduce."""
+    def reproducir(self, estado_tiempo):
+        """Devuelve una nueva cría (si aplica) usando el contexto del ciclo."""
 
     def update_decision_turno(self, listas_de_seres):
         """Actualiza energia/edad y delega la seleccion de objetivos."""
         # "Este es el 'tick' de IA (lento). Consume energía y envejece."
         self.energia -= 2 
         self.edad += 1     
+        self.estado_tiempo = listas_de_seres.get("estado_tiempo")
         self.decidir_objetivo(listas_de_seres) # "Aquí el animal 'piensa'."
 
     def update_movimiento_frame(self):
@@ -214,6 +223,7 @@ class Pez(Animal):
         """Inicializa el pez con tamaño especifico y velocidad reducida."""
         super().__init__(nombre, energia, tiempo_vida, ancho=20, alto=20)
         self.velocidad_frame = random.uniform(1.0, 2.0) 
+        self.velocidad_base = self.velocidad_frame
 
     def comer(self, planta):
         """Consume plantas y devuelve la energia obtenida."""
@@ -222,11 +232,15 @@ class Pez(Animal):
             return planta.energia
         return 0
 
-    def reproducir(self):
+    def reproducir(self, estado_tiempo):
         """Genera una nueva cria si tiene energia y edad suficientes."""
-        # "Reglas de negocio: coste de energía y probabilidad.
-        # Esto balancea la simulación."
-        if self.energia > 100 and self.edad > 5 and random.random() < 0.1:
+        # "Reglas de negocio: la probabilidad aumenta al amanecer y se detiene de noche."
+        if estado_tiempo and estado_tiempo.get("es_noche"):
+            return None
+        prob_base = 0.1
+        if estado_tiempo and estado_tiempo.get("fase") == "amanecer":
+            prob_base += 0.05
+        if self.energia > 100 and self.edad > 5 and random.random() < prob_base:
             self.energia -= 50  # Coste para evitar explosión poblacional.
             cria = Pez("Pejerrey", 50, 20)
             cria.rect.topleft = self.rect.topleft # "La cría aparece donde el padre."
@@ -243,6 +257,10 @@ class Pez(Animal):
         lista_de_plantas = listas_de_seres["plantas"]
         rango_vision_depredador = 150 * 150 # "Usamos distancia al cuadrado. Es una
         rango_vision_planta = 100 * 100     # optimización: evitamos 'sqrt' (raíz cuadrada)."
+        estado_tiempo = self.estado_tiempo or {}
+        es_noche = estado_tiempo.get("es_noche", False)
+        if es_noche:
+            rango_vision_planta = 80 * 80  # Se reduce la visibilidad con poca luz.
         depredador_cercano = None
         planta_cercana = None
         dist_min_depredador = rango_vision_depredador
@@ -270,11 +288,15 @@ class Pez(Animal):
             else: self.target_x = self.rect.x + 70
             if self.rect.centery < depredador_cercano.rect.centery: self.target_y = self.rect.y - 70
             else: self.target_y = self.rect.y + 70
-        elif self.energia < 70 and planta_cercana:
+        elif es_noche and self.energia > 40:
+            # "Por la noche se refugia en zonas profundas en lugar de exponerse."
+            self.target_x = float(self.rect.x + random.randint(-30, 30))
+            self.target_y = float(min(HEIGHT - self.rect.height, self.rect.y + 60))
+        elif (self.energia < 70 or (es_noche and self.energia < 40)) and planta_cercana:
             # "Lógica de caza (plantas): ir hacia el objetivo."
             self.target_x = float(planta_cercana.rect.centerx)
             self.target_y = float(planta_cercana.rect.centery)
-        
+
         # "El 'vagar' (si no pasa nada) se maneja en update_movimiento_frame."
         self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
@@ -296,9 +318,18 @@ class Carnivoro(Animal):
         self.presa_objetivo = None
         presa_cercana = None
         distancia_minima = float('inf')
+        estado_tiempo = self.estado_tiempo or {}
+        es_noche = estado_tiempo.get("es_noche", False)
+        fase = estado_tiempo.get("fase")
+        hambre_tolerada = self.hambre_threshold
+        if es_noche:
+            hambre_tolerada *= 1.2  # Los depredadores se activan más en la oscuridad.
+        elif fase == "dia":
+            hambre_tolerada *= 0.9  # Con abundante luz son más cautos.
+        busca_presa = self.energia < hambre_tolerada or (es_noche and random.random() < 0.35)
         
         # "Solo busca presas si tiene hambre."
-        if self.energia < self.hambre_threshold:
+        if busca_presa:
             for presa in lista_de_presas:
                 distancia = (self.rect.centerx - presa.rect.centerx) ** 2 + (self.rect.centery - presa.rect.centery) ** 2
                 if distancia < distancia_minima:
@@ -331,6 +362,9 @@ class Trucha(Carnivoro):
         rango_vision_depredador = 150 * 150 
         depredador_cercano = None
         dist_min_depredador = rango_vision_depredador
+        estado_tiempo = self.estado_tiempo or {}
+        es_noche = estado_tiempo.get("es_noche", False)
+        fase = estado_tiempo.get("fase")
 
         # "1. Buscar depredadores (Tiburones) - PRIORIDAD MÁXIMA."
         for dep in lista_depredadores:
@@ -350,6 +384,13 @@ class Trucha(Carnivoro):
             # "No hay peligro. Ahora sí, ejecutamos la lógica de caza
             # que heredamos de Carnivoro."
             super().decidir_objetivo(listas_de_seres)
+            if not self.presa_objetivo:
+                if es_noche:
+                    # "Por la noche patrullan el fondo y reducen velocidad vertical."
+                    self.target_y = float(min(HEIGHT - self.rect.height, self.rect.y + 30))
+                elif fase == "amanecer":
+                    # "Al amanecer tienden a subir a zonas iluminadas."
+                    self.target_y = float(max(0, self.rect.y - 50))
             
         self.target_x = max(0, min(self.target_x, WIDTH - self.rect.width))
         self.target_y = max(0, min(self.target_y, HEIGHT - self.rect.height))
@@ -362,9 +403,17 @@ class Trucha(Carnivoro):
             return energia_ganada
         return 0
     
-    def reproducir(self):
+    def reproducir(self, estado_tiempo):
         """Crea una nueva trucha si supera los requisitos."""
-        if self.energia > 150 and self.edad > 8 and random.random() < 0.05:
+        prob = 0.05
+        fase = None
+        if estado_tiempo:
+            fase = estado_tiempo.get("fase")
+            if fase == "noche":
+                return None
+            if fase in ("amanecer", "atardecer"):
+                prob += 0.03
+        if self.energia > 150 and self.edad > 8 and random.random() < prob:
             self.energia -= 70 
             cria = Trucha("Trucha", 100, 25)
             cria.rect.topleft = self.rect.topleft
@@ -378,6 +427,7 @@ class Tiburon(Carnivoro):
         """Define la fuerza, tamaño y estado interno del tiburon."""
         super().__init__(nombre, energia, tiempo_vida, presa_key="truchas", hambre_threshold=150, ancho=45, alto=45)
         self.velocidad_frame = random.uniform(0.4, 1.2) 
+        self.velocidad_base = self.velocidad_frame
         self.estado = 'vagando'  # "El Tiburón tiene un estado interno simple."
 
     def decidir_objetivo(self, listas_de_seres):
@@ -390,6 +440,14 @@ class Tiburon(Carnivoro):
         """Recalcula el objetivo cada frame para simular persecucion constante."""
         # "Esta es la IA especial del Tiburón.
         # Sobrescribe el movimiento, no la decisión."
+        estado_tiempo = self.estado_tiempo or {}
+        if estado_tiempo:
+            if estado_tiempo.get("es_noche"):
+                self.velocidad_frame = min(2.0, self.velocidad_base * 1.25)
+            elif estado_tiempo.get("fase") == "amanecer":
+                self.velocidad_frame = min(2.0, self.velocidad_base * 1.1)
+            else:
+                self.velocidad_frame = max(0.3, self.velocidad_base * 0.9)
         if self.estado == 'cazando' and self.presa_objetivo:
             presa_rect = getattr(self.presa_objetivo, 'rect', None)
             if presa_rect:
@@ -412,9 +470,17 @@ class Tiburon(Carnivoro):
             return energia_ganada
         return 0
 
-    def reproducir(self):
+    def reproducir(self, estado_tiempo):
         """Crea una nueva cría si alcanza los altos costos energéticos."""
-        if self.energia > 200 and self.edad > 10 and random.random() < 0.03:
+        prob = 0.03
+        if estado_tiempo:
+            if estado_tiempo.get("es_noche"):
+                prob = 0.05
+            elif estado_tiempo.get("fase") == "amanecer":
+                prob = 0.035
+            else:
+                prob = 0.02
+        if self.energia > 200 and self.edad > 10 and random.random() < prob:
             self.energia -= 100 
             cria = Tiburon("Tiburón", 200, 30)
             cria.rect.topleft = self.rect.topleft
@@ -432,11 +498,14 @@ class Ecosistema:
         self.truchas = []
         self.tiburones = []
         self.plantas = []
+        self.turno_global = 0
+        self.estado_tiempo = {}
         
         # "Esta es la COLA DE COMUNICACIÓN.
         # Cuando la lógica mata un pez, añade un 'evento' aquí.
         # La Vista lo leerá y dibujará la '💀'."
         self.eventos_visuales = []
+        self._actualizar_estado_tiempo(avanzar=False)
 
     def poblar_inicial(self):
         """Atajo para poblar con los valores por defecto."""
@@ -449,11 +518,43 @@ class Ecosistema:
         self.peces = [Pez("Pejerrey", 70, 120) for _ in range(n_peces)]
         self.truchas = [Trucha("Trucha", 120, 180) for _ in range(n_truchas)]
         self.tiburones = [Tiburon("Tiburon", 200, 30) for _ in range(n_tiburones)]
+        self.turno_global = 0
+        self._actualizar_estado_tiempo(avanzar=False)
+
+    def _fase_por_progreso(self, progreso):
+        """Determina la fase (amanecer/día/atardecer/noche) a partir del avance normalizado."""
+        if progreso < FRACCION_AMANECER:
+            return "amanecer"
+        if progreso < 0.5:
+            return "dia"
+        if progreso < FRACCION_ATARDECER:
+            return "atardecer"
+        return "noche"
+
+    def _actualizar_estado_tiempo(self, avanzar=True):
+        """Avanza el reloj discreto y recalcula los valores expuestos a la Vista."""
+        if avanzar:
+            self.turno_global += 1
+        ciclo_turno = self.turno_global % CICLO_DIA_TURNOS
+        progreso = ciclo_turno / float(CICLO_DIA_TURNOS)
+        fase = self._fase_por_progreso(progreso)
+        dia = (self.turno_global // CICLO_DIA_TURNOS) + 1
+        factor_luz = 0.5 - 0.5 * math.cos(2 * math.pi * progreso)
+        self.estado_tiempo = {
+            "turno": self.turno_global,
+            "dia": dia,
+            "progreso_dia": progreso,
+            "fase": fase,
+            "es_noche": fase == "noche",
+            "factor_luz": max(0.05, min(1.0, factor_luz)),
+        }
+        return self.estado_tiempo
         
     def simular_turno_ia(self):
         """Ejecuta un 'tick' de IA: comer, morir y reproducirse."""
         # "Este es el método más complejo. Es el 'Turno' de IA
         # que 'main' llama cada 'TURNO_DURACION_MS'."
+        estado_tiempo = self._actualizar_estado_tiempo(avanzar=True)
         self.eventos_visuales.clear() # "Limpia la cola de eventos del turno anterior."
         
         peces_muertos, truchas_muertas, tiburones_muertos = [], [], []
@@ -466,7 +567,8 @@ class Ecosistema:
             "peces": self.peces,
             "truchas": self.truchas,
             "tiburones": self.tiburones,
-            "plantas": self.plantas
+            "plantas": self.plantas,
+            "estado_tiempo": estado_tiempo,
         }
 
         # "Bucle de Peces: Decidir, Comer, Reproducirse, Morir."
@@ -481,7 +583,7 @@ class Ecosistema:
                         self.eventos_visuales.append(('comer_pez', pez.rect.center, energia_ganada))
                     plantas_comidas.append(planta)
                     break # "El pez solo come una planta por turno."
-            cria = pez.reproducir()
+            cria = pez.reproducir(estado_tiempo)
             if cria:
                 nuevas_crias_peces.append(cria) 
                 self.eventos_visuales.append(('nacer', cria.rect.center))
@@ -501,7 +603,7 @@ class Ecosistema:
                         peces_muertos.append(pez) # "Marca al pez para eliminarlo."
                         self.eventos_visuales.append(('morir', pez.rect.center))
                     break
-            cria = trucha.reproducir()
+            cria = trucha.reproducir(estado_tiempo)
             if cria:
                 nuevas_crias_truchas.append(cria)
                 self.eventos_visuales.append(('nacer', cria.rect.center))
@@ -521,7 +623,7 @@ class Ecosistema:
                         truchas_muertas.append(trucha)
                         self.eventos_visuales.append(('morir', trucha.rect.center))
                     break
-            cria = tiburon.reproducir()
+            cria = tiburon.reproducir(estado_tiempo)
             if cria:
                 nuevas_crias_tiburones.append(cria)
                 self.eventos_visuales.append(('nacer', cria.rect.center))
@@ -549,14 +651,25 @@ class Ecosistema:
         self.truchas.extend(nuevas_crias_truchas)
         self.tiburones.extend(nuevas_crias_tiburones)
 
-        if random.random() < 0.8:
-            # "Regeneración de recursos."
+        fase_actual = estado_tiempo.get("fase") if estado_tiempo else "dia"
+        if fase_actual in ("amanecer", "dia"):
+            prob_regeneracion = 0.9
+        elif fase_actual == "atardecer":
+            prob_regeneracion = 0.6
+        else:
+            prob_regeneracion = 0.35
+        if random.random() < prob_regeneracion:
+            # "Regeneración de recursos dependiente de la luz solar."
             self.plantas.append(Planta("Alga", 20))
             
     def get_all_entities(self):
         """Devuelve todas las listas de entidades para la Vista."""
         # "Este es el 'API' que la Vista usa para LEER el estado."
         return self.plantas, self.peces, self.truchas, self.tiburones
+
+    def get_estado_tiempo(self):
+        """Expone una copia del estado del ciclo día/noche para la Vista."""
+        return dict(self.estado_tiempo)
 
     def actualizar_movimiento_frame(self):
         """Actualiza el movimiento continuo de todas las criaturas."""
