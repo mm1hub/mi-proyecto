@@ -25,6 +25,55 @@ AREA_JUEGO_ANCHO = WIDTH - PANEL_ANCHO  # Espacio útil para simular criaturas.
 CICLO_DIA_TURNOS = 32          # Cantidad de turnos de IA que dura un día completo.
 FRACCION_AMANECER = 0.18       # Porción inicial dedicada al amanecer.
 FRACCION_ATARDECER = 0.68      # Punto a partir del cual el cielo se vuelve nocturno.
+DIAS_POR_ESTACION = 6          # Cada estación dura 6 días completos.
+ESTACIONES_ORDEN = ("Primavera", "Verano", "Otono", "Invierno")
+
+ESTACIONES_CONFIG = {
+    "Primavera": {
+        "color": Color(138, 227, 185),
+        "descripcion": "Brotes templados y corrientes suaves.",
+        "objetivo": "Mantén al menos 25 algas vivas antes del verano.",
+        "mods": {
+            "movimiento": 1.05,
+            "energia_consumo": 0.92,
+            "regeneracion_plantas": 1.2,
+            "fertilidad": {"peces": 1.3, "truchas": 1.15, "tiburones": 1.05},
+        },
+    },
+    "Verano": {
+        "color": Color(255, 214, 161),
+        "descripcion": "Calor intenso y migraciones veloces.",
+        "objetivo": "Supera el verano sin perder más de 3 peces.",
+        "mods": {
+            "movimiento": 1.08,
+            "energia_consumo": 1.05,
+            "regeneracion_plantas": 1.05,
+            "fertilidad": {"peces": 1.05, "truchas": 1.0, "tiburones": 1.15},
+        },
+    },
+    "Otono": {
+        "color": Color(255, 183, 120),
+        "descripcion": "Corrientes cargadas de hojas, ritmo pausado.",
+        "objetivo": "Mantén la cadena alimenticia equilibrada en otoño.",
+        "mods": {
+            "movimiento": 0.95,
+            "energia_consumo": 0.98,
+            "regeneracion_plantas": 0.85,
+            "fertilidad": {"peces": 0.9, "truchas": 0.95, "tiburones": 1.0},
+        },
+    },
+    "Invierno": {
+        "color": Color(173, 209, 255),
+        "descripcion": "Aguas frías y escasez de alimento.",
+        "objetivo": "Sobrevive al invierno manteniendo 3 tiburones activos.",
+        "mods": {
+            "movimiento": 0.82,
+            "energia_consumo": 1.2,
+            "regeneracion_plantas": 0.55,
+            "fertilidad": {"peces": 0.7, "truchas": 0.8, "tiburones": 0.9},
+        },
+    },
+}
 
 # Rango permitido por especie para evitar extinciones o sobrepoblación
 POBLACION_LIMITES = {
@@ -87,6 +136,30 @@ COLOR_TEXTO_NORMAL = Color(206, 212, 218)
 COLOR_BARRA_FONDO = Color(73, 80, 87)
 COLOR_BARRA_PROGRESO = Color(0, 123, 255) 
 COLOR_SEPARADOR = Color(108, 117, 125) 
+
+
+def _color_to_tuple(color):
+    """Normaliza un Color (o tupla RGB) a una tupla simple."""
+    if isinstance(color, Color):
+        return (color.r, color.g, color.b)
+    if isinstance(color, (tuple, list)) and len(color) >= 3:
+        return (int(color[0]), int(color[1]), int(color[2]))
+    return (255, 255, 255)
+
+
+def obtener_factor_estacional(estado_tiempo, clave, especie=None, default=1.0):
+    """Lee los modificadores estacionales expuestos por el ecosistema."""
+    if not estado_tiempo:
+        return default
+    mods = estado_tiempo.get("mods_estacion") or {}
+    valor = mods.get(clave)
+    if isinstance(valor, dict):
+        if especie:
+            return valor.get(especie, default)
+        return valor.get("general", default)
+    if valor is None:
+        return default
+    return valor
 
 
 # ---------------------------------
@@ -159,9 +232,14 @@ class Animal(ABC):
         """Actualiza energia/edad y delega la seleccion de objetivos."""
         # "Este es el 'tick' de IA (lento). Consume energía y envejece."
         self.estado_tiempo = listas_de_seres.get("estado_tiempo")
+        mods_estacionales = {}
+        if self.estado_tiempo:
+            mods_estacionales = self.estado_tiempo.get("mods_estacion") or {}
         velocidad_factor = self._factor_velocidad_por_fase(self.estado_tiempo)
+        velocidad_factor *= mods_estacionales.get("movimiento", 1.0)
         self.velocidad_frame = max(0.2, min(3.0, self.velocidad_base * velocidad_factor))
         consumo = self.consumo_base * self._factor_consumo_por_fase(self.estado_tiempo)
+        consumo *= mods_estacionales.get("energia_consumo", 1.0)
         self.energia -= consumo
         self.edad += 1     
         self.decidir_objetivo(listas_de_seres) # "Aquí el animal 'piensa'."
@@ -291,6 +369,10 @@ class Pez(Animal):
         elif fase == "atardecer":
             prob_base += 0.03
         energia_umbral = 60 if fase in ("amanecer", "atardecer") else 70
+        factor_estacion = obtener_factor_estacional(estado_tiempo, "fertilidad", "peces")
+        prob_base *= factor_estacion
+        limit = max(0.6, min(1.4, factor_estacion))
+        energia_umbral = max(30, int(energia_umbral * (1.0 / limit)))
         if self.energia > energia_umbral and self.edad > 3 and random.random() < prob_base:
             self.energia -= 50  # Coste para evitar explosión poblacional.
             cria = Pez("Pejerrey", 50, 20)
@@ -533,6 +615,10 @@ class Trucha(Carnivoro):
         elif fase in ("amanecer", "atardecer"):
             prob += 0.05
         energia_umbral = 110 if fase in ("amanecer", "atardecer") else 120
+        factor_estacion = obtener_factor_estacional(estado_tiempo, "fertilidad", "truchas")
+        prob *= factor_estacion
+        limit = max(0.6, min(1.4, factor_estacion))
+        energia_umbral = max(60, int(energia_umbral * (1.0 / limit)))
         if self.energia > energia_umbral and self.edad > 6 and random.random() < prob:
             self.energia -= 70 
             cria = Trucha("Trucha", 100, 25)
@@ -637,6 +723,10 @@ class Tiburon(Carnivoro):
         elif fase == "amanecer":
             prob = 0.12
         energia_umbral = 150 if (fase in ("amanecer", "atardecer")) else 170
+        factor_estacion = obtener_factor_estacional(estado_tiempo, "fertilidad", "tiburones")
+        prob *= factor_estacion
+        limit = max(0.6, min(1.4, factor_estacion))
+        energia_umbral = max(90, int(energia_umbral * (1.0 / limit)))
         if self.energia > energia_umbral and self.edad > 8 and random.random() < prob:
             self.energia -= 100 
             cria = Tiburon("Tiburón", 200, 30)
@@ -662,7 +752,9 @@ class Ecosistema:
         # Cuando la lógica mata un pez, añade un 'evento' aquí.
         # La Vista lo leerá y dibujará la '💀'."
         self.eventos_visuales = []
+        self.estacion_actual = None
         self._actualizar_estado_tiempo(avanzar=False)
+        self.estacion_actual = self.estado_tiempo.get("estacion")
 
     def poblar_inicial(self):
         """Atajo para poblar con los valores por defecto."""
@@ -677,6 +769,7 @@ class Ecosistema:
         self.tiburones = [Tiburon("Tiburon", 200, 30) for _ in range(n_tiburones)]
         self.turno_global = 0
         self._actualizar_estado_tiempo(avanzar=False)
+        self.estacion_actual = self.estado_tiempo.get("estacion")
         self._balancear_poblaciones()
 
     def _fase_por_progreso(self, progreso):
@@ -689,6 +782,16 @@ class Ecosistema:
             return "atardecer"
         return "noche"
 
+    def _estacion_por_dia(self, dia_actual):
+        """Devuelve el nombre de la estación y el progreso relativo dentro de ella."""
+        if dia_actual <= 0:
+            dia_actual = 1
+        total_estaciones = len(ESTACIONES_ORDEN)
+        indice = ((dia_actual - 1) // DIAS_POR_ESTACION) % total_estaciones
+        dia_relativo = ((dia_actual - 1) % DIAS_POR_ESTACION) + 1
+        progreso = ((dia_actual - 1) % DIAS_POR_ESTACION) / float(DIAS_POR_ESTACION)
+        return ESTACIONES_ORDEN[indice], progreso, dia_relativo
+
     def _actualizar_estado_tiempo(self, avanzar=True):
         """Avanza el reloj discreto y recalcula los valores expuestos a la Vista."""
         if avanzar:
@@ -697,6 +800,10 @@ class Ecosistema:
         progreso = ciclo_turno / float(CICLO_DIA_TURNOS)
         fase = self._fase_por_progreso(progreso)
         dia = (self.turno_global // CICLO_DIA_TURNOS) + 1
+        estacion, progreso_estacion, dia_estacion = self._estacion_por_dia(dia)
+        estacion_info = ESTACIONES_CONFIG.get(estacion, {})
+        color_estacion = _color_to_tuple(estacion_info.get("color"))
+        mods_estacion = dict(estacion_info.get("mods", {}))
         factor_luz = 0.5 - 0.5 * math.cos(2 * math.pi * progreso)
         self.estado_tiempo = {
             "turno": self.turno_global,
@@ -705,6 +812,14 @@ class Ecosistema:
             "fase": fase,
             "es_noche": fase == "noche",
             "factor_luz": max(0.05, min(1.0, factor_luz)),
+            "estacion": estacion,
+            "progreso_estacion": progreso_estacion,
+            "dia_estacion": dia_estacion,
+            "color_estacion": color_estacion,
+            "descripcion_estacion": estacion_info.get("descripcion", ""),
+            "objetivo_estacion": estacion_info.get("objetivo", ""),
+            "mods_estacion": mods_estacion,
+            "dias_por_estacion": DIAS_POR_ESTACION,
         }
         return self.estado_tiempo
         
@@ -713,7 +828,22 @@ class Ecosistema:
         # "Este es el método más complejo. Es el 'Turno' de IA
         # que 'main' llama cada 'TURNO_DURACION_MS'."
         estado_tiempo = self._actualizar_estado_tiempo(avanzar=True)
+        nueva_estacion = estado_tiempo.get("estacion")
+        cambio_estacion = nueva_estacion != self.estacion_actual
         self.eventos_visuales.clear() # "Limpia la cola de eventos del turno anterior."
+        if cambio_estacion:
+            self.estacion_actual = nueva_estacion
+            color_estacion = estado_tiempo.get("color_estacion", (255, 255, 255))
+            descripcion = estado_tiempo.get("descripcion_estacion", "")
+            objetivo = estado_tiempo.get("objetivo_estacion", "")
+            self.eventos_visuales.append((
+                'estacion',
+                (AREA_JUEGO_ANCHO // 2, 90),
+                nueva_estacion,
+                color_estacion,
+                descripcion,
+                objetivo,
+            ))
         
         peces_muertos, truchas_muertas, tiburones_muertos = [], [], []
         plantas_comidas = []
@@ -820,6 +950,8 @@ class Ecosistema:
             prob_regeneracion = 0.6
         else:
             prob_regeneracion = 0.35
+        prob_regeneracion *= obtener_factor_estacional(estado_tiempo, "regeneracion_plantas")
+        prob_regeneracion = max(0.05, min(0.95, prob_regeneracion))
         if (len(self.plantas) < POBLACION_LIMITES["plantas"]["max"] and
                 random.random() < prob_regeneracion):
             # "Regeneración de recursos dependiente de la luz solar."

@@ -1,6 +1,7 @@
 ﻿import os
 import pygame
 import random
+import textwrap
 from logic import (
     BLANCO, AZUL, VERDE, MARRON, GRIS, 
     AGUA_CLARA, AGUA_OSCURA, NEGRO_UI,
@@ -15,7 +16,7 @@ from logic import (
     Color, COLOR_PANEL_FONDO, COLOR_TEXTO_TITULO, COLOR_TEXTO_NORMAL,
     COLOR_BARRA_FONDO, COLOR_BARRA_PROGRESO, COLOR_SEPARADOR,
     WIDTH, HEIGHT, PANEL_ANCHO, # Importar dimensiones
-    CICLO_DIA_TURNOS, FRACCION_AMANECER, FRACCION_ATARDECER,
+    CICLO_DIA_TURNOS, FRACCION_AMANECER, FRACCION_ATARDECER, DIAS_POR_ESTACION,
 )
 
 """Capa de presentación: dibuja el ecosistema y maneja la interfaz de usuario."""
@@ -30,6 +31,7 @@ SONIDOS_MAP = {
     'pause': 'morir.mp3',
     'resume': 'comer_planta.mp3',
     'stop': 'morir.mp3',
+    'estacion': 'comer_planta.mp3',
 }
 
 ICONOS_ESPECIES = {
@@ -220,6 +222,8 @@ class Vista:
         self.particulas = []
         self.burbujas = []
         self.screen_shake = 0 # Un simple contador para el efecto "vibración"
+        self.event_feed = []
+        self.banner_estacion = None
         
         # --- Almacén de Estadísticas (de main.py) ---
         self.turn_progress = 0.0
@@ -268,6 +272,14 @@ class Vista:
                 color = (255, 184, 108, int(90 * intensidad))
                 resplandor.fill(color)
                 self.screen.blit(resplandor, offset)
+        color_estacion = estado_tiempo.get("color_estacion")
+        if color_estacion:
+            tono = pygame.Surface((area_ancho, self.height), pygame.SRCALPHA)
+            progreso_estacional = estado_tiempo.get("progreso_estacion", 0.0)
+            alpha = int(40 + 80 * progreso_estacional)
+            r, g, b = color_estacion[:3]
+            tono.fill((r, g, b, max(30, min(140, alpha))))
+            self.screen.blit(tono, offset)
 
     def _verificar_transiciones_ciclo(self, estado_tiempo):
         """Genera partículas simbólicas cuando cambia el día o la fase."""
@@ -438,6 +450,86 @@ class Vista:
         pos_pausa = img_pausa.get_rect(center=(overlay_rect.centerx + offset[0], overlay_rect.centery + offset[1]))
         self.screen.blit(img_pausa, pos_pausa)
 
+    def _dibujar_banner_partida(self, estado_tiempo):
+        """Overlay ligero que resalta que la partida está corriendo."""
+        if not (self.sim_running and estado_tiempo and self.font_normal):
+            return
+        area_ancho = max(0, self.panel_rect.left - 40)
+        if area_ancho < 200:
+            return
+        banner_w = min(640, area_ancho)
+        banner_h = 72
+        banner = pygame.Surface((banner_w, banner_h), pygame.SRCALPHA)
+        pygame.draw.rect(banner, (10, 15, 25, 215), banner.get_rect(), border_radius=18)
+        color_est = estado_tiempo.get("color_estacion", (255, 255, 255))
+        decor = pygame.Rect(18, 14, banner_w - 36, 4)
+        pygame.draw.rect(banner, (color_est[0], color_est[1], color_est[2], 230), decor, border_radius=2)
+        titulo = self.font_pequeno.render("Partida activa", True, COLOR_TEXTO_NORMAL)
+        banner.blit(titulo, (20, 8))
+        estacion = estado_tiempo.get("estacion", "—")
+        estacion_img = self.font_titulo.render(estacion, True, COLOR_TEXTO_TITULO)
+        banner.blit(estacion_img, (20, 24))
+        estado_linea = self.font_pequeno.render(
+            f"Día {estado_tiempo.get('dia', 1)} · Turno #{estado_tiempo.get('turno', 0)}",
+            True,
+            COLOR_TEXTO_NORMAL,
+        )
+        banner.blit(estado_linea, (20, banner_h - 24))
+        objetivo = estado_tiempo.get("objetivo_estacion")
+        if objetivo:
+            texto_obj = textwrap.shorten(objetivo, width=42, placeholder="…")
+            objetivo_img = self.font_pequeno.render(texto_obj, True, COLOR_TEXTO_NORMAL)
+            banner.blit(objetivo_img, (banner_w - objetivo_img.get_width() - 20, 24))
+        barra = pygame.Rect(20, banner_h - 12, banner_w - 40, 6)
+        pygame.draw.rect(banner, (40, 60, 90, 180), barra, border_radius=3)
+        progreso = max(0.0, min(1.0, getattr(self, "turn_progress", 0.0)))
+        if progreso > 0:
+            barra_prog = pygame.Rect(barra.x, barra.y, int(barra.width * progreso), barra.height)
+            pygame.draw.rect(banner, (color_est[0], color_est[1], color_est[2], 220), barra_prog, border_radius=3)
+        self.screen.blit(banner, (20, 12))
+
+    def _dibujar_banner_estacion(self):
+        """Banner flotante que aparece cuando cambia la estación."""
+        if not self.banner_estacion or not self.font_titulo:
+            return
+        timer = self.banner_estacion.get("timer", 0)
+        if timer <= 0:
+            self.banner_estacion = None
+            return
+        self.banner_estacion["timer"] = timer - 1
+        area_ancho = max(0, self.panel_rect.left)
+        if area_ancho <= 0:
+            return
+        ancho = min(area_ancho - 40, 760)
+        alto = 120
+        fade = min(1.0, timer / 240.0)
+        color = self.banner_estacion.get("color", (255, 255, 255))
+        banner = pygame.Surface((ancho, alto), pygame.SRCALPHA)
+        pygame.draw.rect(
+            banner,
+            (color[0], color[1], color[2], int(160 * fade)),
+            banner.get_rect(),
+            border_radius=36,
+        )
+        nombre = self.banner_estacion.get("nombre", "Estación")
+        titulo = self.font_titulo.render(nombre.upper(), True, BLANCO)
+        banner.blit(titulo, titulo.get_rect(center=(ancho // 2, 32)))
+        descripcion = self.banner_estacion.get("descripcion", "")
+        if descripcion:
+            desc_img = self.font_normal.render(descripcion, True, BLANCO)
+            banner.blit(desc_img, desc_img.get_rect(center=(ancho // 2, 62)))
+        objetivo = self.banner_estacion.get("objetivo", "")
+        if objetivo:
+            wrapped = textwrap.wrap(objetivo, width=40)
+            y = 80
+            for linea in wrapped[:2]:
+                obj_img = self.font_pequeno.render(linea, True, BLANCO)
+                banner.blit(obj_img, obj_img.get_rect(center=(ancho // 2, y)))
+                y += 18
+        pos_x = max(20, (self.panel_rect.left - ancho) // 2)
+        pos_y = max(70, int(self.height * 0.3))
+        self.screen.blit(banner, (pos_x, pos_y))
+
     # --- Bucle de Dibujo Principal ---
 
     def dibujar_ecosistema(self, ecosistema):
@@ -548,6 +640,8 @@ class Vista:
         # Sí vibran, para que parezcan "del mundo"
         self.gestionar_eventos(ecosistema.eventos_visuales)
         self.actualizar_y_dibujar_particulas(shake_offset)
+        self._dibujar_banner_partida(estado_tiempo)
+        self._dibujar_banner_estacion()
         
         # 4. Dibujar Overlay de Pausa (encima de todo, excepto el panel)
         if self.sim_running and self.sim_paused:
@@ -661,7 +755,8 @@ class Vista:
         # --- (Req 1) "Tiempo Transcurrido" y "Especie Dominante" ELIMINADOS ---
         
         # 3. Barras de Población (Leídas en vivo del modelo 'ecosistema')
-        self._dibujar_stats_poblacion(ecosistema, py)
+        py = self._dibujar_stats_poblacion(ecosistema, py)
+        self._dibujar_event_feed(py + 20)
 
     def _dibujar_info_tiempo(self, ecosistema, start_y):
         """Dibuja el estado actual del ciclo día/noche en el panel."""
@@ -681,7 +776,39 @@ class Vista:
         progreso = estado_tiempo.get("progreso_dia", 0.0)
         rect_dia = pygame.Rect(px, start_y, ancho_total, 8)
         self._dibujar_barra_progreso(rect_dia, progreso, COLOR_BARRA_PROGRESO, COLOR_BARRA_FONDO)
-        start_y += 30
+        start_y += 24
+        estacion = estado_tiempo.get("estacion", "—")
+        dias_totales = estado_tiempo.get("dias_por_estacion", DIAS_POR_ESTACION)
+        dia_estacion = estado_tiempo.get("dia_estacion", 1)
+        estacion_img = self.font_pequeno.render(
+            f"Estación: {estacion} ({dia_estacion}/{dias_totales})",
+            True,
+            COLOR_TEXTO_TITULO,
+        )
+        self.screen.blit(estacion_img, (px, start_y))
+        start_y += 18
+        rect_est = pygame.Rect(px, start_y, ancho_total, 6)
+        color_estacion = estado_tiempo.get("color_estacion", (255, 255, 255))
+        pygame.draw.rect(self.screen, COLOR_BARRA_FONDO, rect_est, border_radius=3)
+        ancho_prog = rect_est.width * max(0.0, min(1.0, estado_tiempo.get("progreso_estacion", 0.0)))
+        if ancho_prog > 0:
+            barra = pygame.Rect(rect_est.x, rect_est.y, int(ancho_prog), rect_est.height)
+            pygame.draw.rect(self.screen, color_estacion, barra, border_radius=3)
+        start_y += 16
+        clima = estado_tiempo.get("descripcion_estacion")
+        if clima:
+            clima_img = self.font_pequeno.render(f"Clima: {clima}", True, COLOR_TEXTO_NORMAL)
+            self.screen.blit(clima_img, (px, start_y))
+            start_y += 18
+        objetivo = estado_tiempo.get("objetivo_estacion")
+        if objetivo:
+            prefijo = "Objetivo: "
+            wrapped = textwrap.wrap(prefijo + objetivo, width=36)
+            for idx, linea in enumerate(wrapped):
+                texto = linea if idx == 0 else linea
+                objetivo_img = self.font_pequeno.render(texto, True, COLOR_TEXTO_NORMAL)
+                self.screen.blit(objetivo_img, (px, start_y))
+                start_y += 18
         return start_y
 
     def _dibujar_stats_poblacion(self, ecosistema, start_y):
@@ -715,6 +842,55 @@ class Vista:
             rect_prog = pygame.Rect(px, py, ancho_total, 10)
             self._dibujar_barra_progreso(rect_prog, progress, colors[key], COLOR_BARRA_FONDO)
             py += 25 
+        return py
+
+    def _dibujar_event_feed(self, start_y):
+        """Muestra un resumen compacto de eventos recientes en el panel."""
+        if not self.font_pequeno:
+            return
+        self._decaer_event_feed()
+        px = self.panel_rect.x + self.panel_padding
+        titulo = self.font_pequeno.render("Eventos recientes", True, COLOR_TEXTO_NORMAL)
+        self.screen.blit(titulo, (px, start_y))
+        start_y += 20
+        if not self.event_feed:
+            vacio = self.font_pequeno.render("Sin actividad destacada", True, COLOR_TEXTO_NORMAL)
+            self.screen.blit(vacio, (px, start_y))
+            return
+        linea_y = start_y
+        for entry in reversed(self.event_feed[-4:]):
+            intensidad = entry.get("vida", 0) / float(max(1, entry.get("vida_max", 1)))
+            intensidad = max(0.25, min(1.0, intensidad))
+            color = entry.get("color", COLOR_TEXTO_NORMAL)
+            indicador = pygame.Rect(px, linea_y + 6, 6, 6)
+            pygame.draw.rect(self.screen, color, indicador, border_radius=2)
+            texto_img = self.font_pequeno.render(entry.get("texto", ""), True, color)
+            texto_img.set_alpha(int(255 * intensidad))
+            self.screen.blit(texto_img, (px + 12, linea_y))
+            linea_y += 18
+
+    def _decaer_event_feed(self):
+        """Reduce la vida de cada entrada y limpia las caducadas."""
+        if not self.event_feed:
+            return
+        vivos = []
+        for entry in self.event_feed:
+            entry["vida"] = entry.get("vida", 0) - 1
+            if entry["vida"] > 0:
+                vivos.append(entry)
+        self.event_feed = vivos[-6:]
+
+    def _push_event_feed(self, texto, color, ttl=360):
+        """Registra un texto breve para el ticker del panel."""
+        if not texto:
+            return
+        self.event_feed.append({
+            "texto": texto,
+            "color": color,
+            "vida": ttl,
+            "vida_max": ttl,
+        })
+        self.event_feed = self.event_feed[-6:]
 
     # --- Métodos de Gestión de Eventos y Estado ---
 
@@ -740,28 +916,56 @@ class Vista:
                     valor = evento[2]
                     self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER))
                     self.reproducir_sonido('comer_pez')
+                    self._push_event_feed(f"Pez repuso {valor} energía", COLOR_COMER)
                 
                 elif tipo == 'comer_depredador':
                     valor = evento[2]
                     self.particulas.append(Particula(f"+{valor}", pos_adj, COLOR_COMER, vida=60))
                     self.screen_shake = 10 # Activamos el 'shake'
                     self.reproducir_sonido('comer_depredador')
+                    self._push_event_feed(f"Depredador ganó {valor} energía", COLOR_COMER)
                 
                 elif tipo == 'aparearse':
                     especie = evento[2] if len(evento) > 2 else None
                     icono = ICONOS_ESPECIES.get(especie, "💕")
                     texto = f"{icono} Pareja"
                     self.particulas.append(Particula(texto, pos_adj, COLOR_NACER, vida=70))
+                    etiqueta = especie.capitalize() if isinstance(especie, str) else "criatura"
+                    self._push_event_feed(f"Pareja de {etiqueta}", COLOR_NACER)
                 elif tipo == 'nacer':
                     especie = evento[2] if len(evento) > 2 else None
                     icono = ICONOS_ESPECIES.get(especie, "❤️")
                     texto = f"{icono} +1"
                     self.particulas.append(Particula(texto, pos_adj, COLOR_NACER, vida=75))
+                    etiqueta = especie.capitalize() if isinstance(especie, str) else "criatura"
+                    self._push_event_feed(f"Nace un {etiqueta}", COLOR_NACER)
                 
                 elif tipo == 'morir':
                     self.particulas.append(Particula("💀", pos_adj, COLOR_MORIR, vida=60))
                     self.screen_shake = 8
                     self.reproducir_sonido('morir')
+                    self._push_event_feed("Una criatura ha caído", COLOR_MORIR)
+                
+                elif tipo == 'estacion':
+                    nombre = evento[2] if len(evento) > 2 else "Nueva estación"
+                    color = evento[3] if len(evento) > 3 else (255, 255, 255)
+                    descripcion = evento[4] if len(evento) > 4 else ""
+                    objetivo = evento[5] if len(evento) > 5 else ""
+                    if isinstance(color, Color):
+                        color_tuple = (color.r, color.g, color.b)
+                    elif isinstance(color, (tuple, list)):
+                        color_tuple = (int(color[0]), int(color[1]), int(color[2]))
+                    else:
+                        color_tuple = (255, 255, 255)
+                    self.banner_estacion = {
+                        "nombre": nombre,
+                        "color": color_tuple,
+                        "descripcion": descripcion,
+                        "objetivo": objetivo,
+                        "timer": 360,
+                    }
+                    self._push_event_feed(f"Comienza {nombre}", color_tuple)
+                    self.reproducir_sonido('estacion')
             
             except Exception as e:
                 print(f"Error procesando evento {evento}: {e}")
