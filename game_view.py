@@ -112,7 +112,7 @@ class GameView:
         # Gestión partidas
         self.save_slots: List[Dict[str, Any]] = []
         self.selected_save_id: Optional[str] = None
-        self.active_save_name: str = ""  # <-- para mostrar arriba izq
+        self.active_save_name: str = ""  # se muestra arriba izq durante simulación
 
         self.pending_delete_id: Optional[str] = None
 
@@ -136,13 +136,12 @@ class GameView:
         self.btn_start = pygame.Rect(x, y, w, h)
         self.btn_pause = pygame.Rect(x, y + h + 10, w, h)
         self.btn_stop = pygame.Rect(x, y + (h + 10) * 2, w, h)
-        # NUEVO: botón guardado manual bajo stop
+        # botón guardado manual (solo visible cuando corre)
         self.btn_manual_save = pygame.Rect(x, y + (h + 10) * 3, w, 36)
 
     def setup_config_buttons(self):
         padding = 20
         x = self.panel_rect.x + padding
-        # OJO: lo definimos más abajo porque ahora hay btn_manual_save cuando corre
         y = self.btn_stop.bottom + 220
 
         items = [
@@ -253,7 +252,6 @@ class GameView:
                             self.text_input_value += ch
                         return None
 
-                # global keys
                 if event.key == pygame.K_ESCAPE:
                     return "quit"
                 elif event.key == pygame.K_SPACE and self.simulation_running:
@@ -263,15 +261,14 @@ class GameView:
 
     def handle_click(self, pos: Tuple[int, int]) -> Optional[Any]:
         if not self.panel_rect.collidepoint(pos):
-            # click fuera del panel: si estaba esperando confirmación delete, la cancelamos
             self.pending_delete_id = None
             return None
 
-        # Botón guardado manual (solo cuando corre y hay partida seleccionada)
+        # guardado manual
         if self.simulation_running and self.selected_save_id and self.btn_manual_save.collidepoint(pos):
             return {"type": "save_manual", "save_id": self.selected_save_id}
 
-        # controles principales
+        # start (bloqueado si no hay partida)
         if not self.simulation_running and self.btn_start.collidepoint(pos):
             if self.selected_save_id is not None:
                 return "start"
@@ -309,7 +306,7 @@ class GameView:
                 return {"type": "save_load", "save_id": self.selected_save_id}
             return None
 
-        # filas partidas
+        # filas partidas (FIX: primero rename/delete)
         slots_rects: Dict[str, Dict[str, pygame.Rect]] = self.save_ui_rects.get("slots", {})
 
         for save_id, rects in slots_rects.items():
@@ -317,7 +314,6 @@ class GameView:
             rename_rect = rects.get("rename")
             delete_rect = rects.get("delete")
 
-            # ✅ FIX CRÍTICO: primero rename/delete y recién después seleccionar fila
             if rename_rect and rename_rect.collidepoint(pos):
                 slot = next((s for s in self.save_slots if s["save_id"] == save_id), None)
                 if slot:
@@ -372,10 +368,7 @@ class GameView:
             if event["type"] == "eat":
                 energy = int(event.get("energy", 0))
                 eater = event.get("eater", "")
-                if eater == "pez":
-                    snd = self.assets.load_sound("comer_planta.mp3")
-                else:
-                    snd = self.assets.load_sound("comer.mp3")
+                snd = self.assets.load_sound("comer_planta.mp3") if eater == "pez" else self.assets.load_sound("comer.mp3")
                 self.add_particle(event["position"][0], event["position"][1], f"+{energy}", cfg.EAT_COLOR)
                 if snd:
                     snd.play()
@@ -433,14 +426,12 @@ class GameView:
                 self.draw_entity(e, "tiburon.png", cfg.GRAY)
 
     def draw_active_save_label(self):
-        """NUEVO: texto arriba-izq durante simulación con partida activa."""
         if not self.simulation_running or not self.active_save_name:
             return
         font = self.assets.get_font(18, bold=True)
         txt = f"Partida: {self.active_save_name}"
         surf = font.render(txt, True, cfg.TEXT_TITLE)
 
-        # fondo semitransparente para legibilidad
         pad = 8
         bg = pygame.Surface((surf.get_width() + pad * 2, surf.get_height() + pad * 2), pygame.SRCALPHA)
         bg.fill((0, 0, 0, 120))
@@ -460,7 +451,6 @@ class GameView:
 
         self.draw_main_buttons()
 
-        # dónde empieza la gestión (si corre, deja espacio para btn_manual_save)
         controls_bottom = self.btn_manual_save.bottom if self.simulation_running else self.btn_stop.bottom
         start_y = controls_bottom + 14
 
@@ -482,7 +472,6 @@ class GameView:
             self.draw_button(self.btn_pause, pause_text, pause_color, True)
             self.draw_button(self.btn_stop, "Detener", cfg.BTN_STOP, True)
 
-            # NUEVO: Guardado manual (solo si hay partida seleccionada)
             can_save = self.selected_save_id is not None
             self.draw_button(self.btn_manual_save, "Guardar (Manual)", cfg.BTN_PLUS, can_save)
 
@@ -561,10 +550,7 @@ class GameView:
             y += row_h + 4
 
         if self.pending_delete_id:
-            self.screen.blit(
-                small_font.render("Click de nuevo en X para eliminar.", True, cfg.BTN_STOP),
-                (x, y),
-            )
+            self.screen.blit(small_font.render("Click de nuevo en X para eliminar.", True, cfg.BTN_STOP), (x, y))
             y += 20
 
         load_rect = pygame.Rect(x, y + 4, cfg.PANEL_WIDTH - 40, 30)
@@ -589,14 +575,18 @@ class GameView:
             plus_color = cfg.BTN_PLUS if self.config[key] < cfg.POPULATION_LIMITS[key]["max"] else (100, 100, 100)
             self.draw_button(buttons["plus"], "+", plus_color, self.config[key] < cfg.POPULATION_LIMITS[key]["max"])
 
+    # ----------------- RESTAURADO: barras de N días + turno IA -----------------
+
     def draw_statistics(self, ecosystem: Ecosystem, small_font, normal_font, start_y: int):
         x = self.panel_rect.x + 20
         y = start_y
 
         self.screen.blit(normal_font.render("Estadísticas", True, cfg.TEXT_TITLE), (x, y))
-        y += 40
+        y += 36
 
         stats = ecosystem.get_statistics()
+
+        # Población + barras
         populations = [
             ("Algas", stats["plants"], cfg.GREEN, 50),
             ("Peces", stats["fish"], cfg.BLUE, 30),
@@ -606,14 +596,65 @@ class GameView:
 
         for label, count, color, max_count in populations:
             self.screen.blit(small_font.render(f"{label} ({count})", True, cfg.TEXT_NORMAL), (x, y))
-            y += 20
+            y += 18
 
             progress = count / max(1, max_count)
-            w = cfg.PANEL_WIDTH - 40
-            pygame.draw.rect(self.screen, cfg.BAR_BG, (x, y, w, 8), border_radius=4)
+            bar_w = cfg.PANEL_WIDTH - 40
+            bar_h = 8
+            pygame.draw.rect(self.screen, cfg.BAR_BG, (x, y, bar_w, bar_h), border_radius=4)
             if progress > 0:
-                pygame.draw.rect(self.screen, color, (x, y, int(w * progress), 8), border_radius=4)
-            y += 25
+                pygame.draw.rect(self.screen, color, (x, y, int(bar_w * min(1.0, progress)), bar_h), border_radius=4)
+            y += 22
+
+        # ---------------- Barra de progreso del día (día/noche) ----------------
+        y += 6
+        day_text = f"Día {stats['day']} · {stats['time_of_day'].capitalize()}"
+        self.screen.blit(small_font.render(day_text, True, cfg.TEXT_NORMAL), (x, y))
+        y += 18
+
+        day_bar_w = cfg.PANEL_WIDTH - 40
+        pygame.draw.rect(self.screen, cfg.BAR_BG, (x, y, day_bar_w, 6), border_radius=3)
+        if stats.get("day_progress", 0) > 0:
+            fill = int(day_bar_w * max(0.0, min(1.0, stats["day_progress"])))
+            pygame.draw.rect(self.screen, cfg.BAR_PROGRESS, (x, y, fill, 6), border_radius=3)
+        y += 16
+
+        # ---------------- Barra de progreso de N días (por estación) ----------------
+        season = stats.get("season", "—")
+        n = max(1, getattr(cfg, "DAYS_PER_SEASON", 1))
+
+        # Día dentro de la estación (1..N) + progreso continuo dentro del día
+        day_index_in_season = ((stats["day"] - 1) % n) + 1
+        day_progress = float(stats.get("day_progress", 0.0))
+        season_progress_continuous = (((day_index_in_season - 1) + day_progress) / n)
+        season_progress_continuous = max(0.0, min(1.0, season_progress_continuous))
+
+        # color de estación si existe
+        season_color = cfg.BAR_PROGRESS
+        if hasattr(cfg, "SEASONS_CONFIG") and season in cfg.SEASONS_CONFIG:
+            season_color = cfg.SEASONS_CONFIG[season].get("color", cfg.BAR_PROGRESS)
+
+        season_label = f"Estación: {season} (Día {day_index_in_season}/{n})"
+        self.screen.blit(small_font.render(season_label, True, cfg.TEXT_TITLE), (x, y))
+        y += 18
+
+        pygame.draw.rect(self.screen, cfg.BAR_BG, (x, y, day_bar_w, 8), border_radius=4)
+        if season_progress_continuous > 0:
+            fill = int(day_bar_w * season_progress_continuous)
+            pygame.draw.rect(self.screen, season_color, (x, y, fill, 8), border_radius=4)
+        y += 20
+
+        # ---------------- Barra del turno/ciclo IA ----------------
+        y += 4
+        self.screen.blit(small_font.render("Siguiente turno IA:", True, cfg.TEXT_NORMAL), (x, y))
+        y += 18
+
+        pygame.draw.rect(self.screen, cfg.BAR_BG, (x, y, day_bar_w, 8), border_radius=4)
+        p = max(0.0, min(1.0, float(self.turn_progress)))
+        if p > 0:
+            fill = int(day_bar_w * p)
+            pygame.draw.rect(self.screen, cfg.BAR_PROGRESS, (x, y, fill, 8), border_radius=4)
+        y += 18
 
     def draw_particles(self):
         for p in self.particles:
@@ -633,7 +674,7 @@ class GameView:
         self.screen.fill(cfg.BLACK)
         self.draw_ecosystem(ecosystem)
         self.draw_particles()
-        self.draw_active_save_label()   # <-- NUEVO: arriba izq
+        self.draw_active_save_label()
         self.draw_panel(ecosystem)
         self.draw_pause_overlay()
         pygame.display.flip()

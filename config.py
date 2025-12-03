@@ -9,7 +9,7 @@ from pygame import Color
 # DIMENSIONES Y TIEMPO
 # ============================================================================
 SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
+SCREEN_HEIGHT = 768
 FPS = 60
 PANEL_WIDTH = 280
 GAME_AREA_WIDTH = SCREEN_WIDTH - PANEL_WIDTH
