@@ -1,10 +1,10 @@
 """
 Controlador principal del juego.
-Incluye sistema completo de guardado/carga (JSON) con metadatos.
+Incluye integración con sistema de guardado/carga y gestor de partidas en la UI.
 """
 
-import pygame
 import sys
+import pygame
 import base64
 import pickle
 import random
@@ -17,6 +17,8 @@ from save_system import SaveManager
 
 
 class GameController:
+    """Controla el flujo principal del juego."""
+
     def __init__(self):
         self.view = GameView()
         self.ecosystem = Ecosystem()
@@ -24,11 +26,20 @@ class GameController:
 
         self.running = False
 
+        # Estado de simulación
         self.simulation_running = False
         self.simulation_paused = False
         self.next_turn_time = 0
 
         self.last_time = pygame.time.get_ticks()
+
+        # Gestión de partidas
+        self.current_save_id: Optional[str] = None   # partida "activa"
+        self.loaded_from_save: bool = False          # se cargó desde archivo (para NO re-inicializar al comenzar)
+
+    # ------------------------------------------------------------------
+    #                    INICIALIZACIÓN
+    # ------------------------------------------------------------------
 
     def initialize(self) -> bool:
         print("=" * 60)
@@ -41,12 +52,14 @@ class GameController:
 
         self.start_background_music()
 
+        # Cargar lista de partidas existentes
+        self.refresh_save_slots()
+
         print("✓ Juego inicializado correctamente")
         print("  Controles:")
-        print("  - Botones panel: Comenzar / Pausar / Detener")
+        print("  - Gestiona partidas en el panel derecho (crear / cargar / renombrar / eliminar)")
+        print("  - 'Comenzar' solo se habilita si hay una partida seleccionada")
         print("  - ESPACIO: Pausar/Reanudar")
-        print("  - F5: Guardar partida")
-        print("  - F9: Cargar partida")
         print("  - ESC: Salir")
         print()
         return True
@@ -59,88 +72,61 @@ class GameController:
         except Exception as e:
             print(f"⚠️  No se pudo cargar música de fondo: {e}")
 
-    # =========================
-    #     EVENTOS Y UI
-    # =========================
+    def refresh_save_slots(self):
+        """Actualiza la lista de partidas en la vista."""
+        saves = self.save_manager.list_saves()
+        self.view.set_save_slots(saves, self.current_save_id)
+
+    # ------------------------------------------------------------------
+    #                      EVENTOS
+    # ------------------------------------------------------------------
+
     def handle_events(self) -> bool:
         ev = self.view.handle_events()
 
+        # Eventos complejos de la UI (gestor de partidas)
+        if isinstance(ev, dict):
+            t = ev.get("type")
+            if t == "save_create":
+                name = ev.get("name", "").strip()
+                if name:
+                    self.ui_create_save(name)
+            elif t == "save_select":
+                save_id = ev.get("save_id")
+                self.current_save_id = save_id
+                self.loaded_from_save = False
+                self.refresh_save_slots()
+            elif t == "save_rename":
+                save_id = ev.get("save_id")
+                new_name = ev.get("new_name", "").strip()
+                if save_id and new_name:
+                    self.ui_rename_save(save_id, new_name)
+            elif t == "save_delete":
+                save_id = ev.get("save_id")
+                if save_id:
+                    self.ui_delete_save(save_id)
+            elif t == "save_load":
+                save_id = ev.get("save_id")
+                if save_id:
+                    self.ui_load_save(save_id)
+            return True
+
+        # Eventos simples (strings)
         if ev == "quit":
             return False
-        if ev == "toggle_pause":
+        elif ev == "toggle_pause":
             self.toggle_pause()
         elif ev == "start":
             self.start_simulation()
         elif ev == "stop":
             self.stop_simulation()
-        elif ev == "save":
-            self.save_flow()
-        elif ev == "load":
-            self.load_flow()
 
         return True
 
-    def start_simulation(self):
-        if self.simulation_running:
-            return
+    # ------------------------------------------------------------------
+    #                 ACCIONES DE GESTOR DE PARTIDAS
+    # ------------------------------------------------------------------
 
-        print("▶️  Iniciando simulación...")
-        config = self.view.get_configuration()
-        print(f"  Configuración: {config}")
-
-        self.ecosystem.initialize(config)
-
-        self.simulation_running = True
-        self.simulation_paused = False
-        self.ecosystem.set_paused(False)
-
-        self.next_turn_time = pygame.time.get_ticks() + cfg.TURN_DURATION_MS
-        self.view.set_simulation_state(True, False)
-
-    def stop_simulation(self):
-        if not self.simulation_running:
-            return
-
-        print("⏹️  Deteniendo simulación...")
-        self.simulation_running = False
-        self.simulation_paused = False
-
-        # importante: congelar ecosistema si se detiene
-        self.ecosystem.set_paused(True)
-
-        self.view.set_simulation_state(False, False)
-
-    def toggle_pause(self):
-        if not self.simulation_running:
-            return
-        self.simulation_paused = not self.simulation_paused
-        self.ecosystem.set_paused(self.simulation_paused)
-        self.view.set_simulation_state(True, self.simulation_paused)
-        print(f"{'⏸️' if self.simulation_paused else '▶️'} Simulación {'pausada' if self.simulation_paused else 'reanudada'}")
-
-    # =========================
-    #       UPDATE LOOP
-    # =========================
-    def update(self, delta_time: float):
-        if not self.simulation_running:
-            return
-
-        if not self.simulation_paused:
-            current_time = pygame.time.get_ticks()
-            time_until_turn = max(0, self.next_turn_time - current_time)
-            progress = 1.0 - (time_until_turn / cfg.TURN_DURATION_MS)
-            self.view.set_turn_progress(progress)
-
-            if current_time >= self.next_turn_time:
-                self.next_turn_time = current_time + cfg.TURN_DURATION_MS
-
-        self.ecosystem.update(delta_time)
-        self.view.process_ecosystem_events(self.ecosystem.events)
-        self.view.update_particles()
-
-    # =========================
-    #     GUARDADO / CARGA
-    # =========================
     def _random_state_to_b64(self) -> str:
         blob = pickle.dumps(random.getstate(), protocol=pickle.HIGHEST_PROTOCOL)
         return base64.b64encode(blob).decode("ascii")
@@ -153,7 +139,7 @@ class GameController:
         except Exception:
             pass
 
-    def _build_meta(self, save_name: str) -> Dict[str, Any]:
+    def _build_meta_for_save(self, save_name: str) -> Dict[str, Any]:
         stats = self.ecosystem.get_statistics()
         counts = {
             "plants": stats["plants"],
@@ -162,21 +148,24 @@ class GameController:
             "sharks": stats["sharks"],
         }
         total = sum(counts.values())
-        summary = f"{stats['season']} | Día {stats['day']} | {stats['time_of_day']} | P:{counts['plants']} F:{counts['fish']} T:{counts['trout']} S:{counts['sharks']}"
-
+        summary = (
+            f"{stats['season']} | Día {stats['day']} | "
+            f"{stats['time_of_day']} | P:{counts['plants']} "
+            f"F:{counts['fish']} T:{counts['trout']} S:{counts['sharks']}"
+        )
         return {
-            "cycle": int(stats["turn"]),  # ciclo = turn_count (frames/actualizaciones)
+            "cycle": int(stats["turn"]),
             "entities_total": total,
             "counts": counts,
             "summary": summary,
             "active_config": self.view.get_configuration(),
         }
 
-    def _build_state(self) -> Dict[str, Any]:
+    def _build_state_for_save(self) -> Dict[str, Any]:
         controller_state = {
             "simulation_running": self.simulation_running,
             "simulation_paused": self.simulation_paused,
-            "turn_progress": getattr(self.view, "turn_progress", 0.0),
+            "turn_progress": self.view.turn_progress,
         }
         return {
             "controller": controller_state,
@@ -185,126 +174,165 @@ class GameController:
             "random_state_b64": self._random_state_to_b64(),
         }
 
-    def save_flow(self):
-        if not self.simulation_running:
-            print("⚠️ No hay simulación activa para guardar.")
-            return
-
-        was_paused = self.simulation_paused
-        if not was_paused:
-            self.simulation_paused = True
-            self.ecosystem.set_paused(True)
-            self.view.set_simulation_state(True, True)
-
-        # Nombre del guardado (manual)
-        name = input("📝 Nombre del guardado: ").strip()
-        if not name:
-            print("⚠️ Guardado cancelado (nombre vacío).")
-            if not was_paused:
-                self.simulation_paused = False
-                self.ecosystem.set_paused(False)
-                self.view.set_simulation_state(True, False)
-            return
-
-        meta = self._build_meta(name)
-        state = self._build_state()
+    def ui_create_save(self, name: str):
+        """
+        Crea una nueva partida usando el estado ACTUAL del simulador.
+        Puede llamarse aunque la simulación aún no haya empezado (ecosistema vacío).
+        """
+        meta = self._build_meta_for_save(name)
+        state = self._build_state_for_save()
         save_id = self.save_manager.save(name, meta, state)
 
-        print(f"✅ Guardado creado: {name} (ID: {save_id})")
+        self.current_save_id = save_id
+        self.loaded_from_save = False
+        self.refresh_save_slots()
 
-        if not was_paused:
-            self.simulation_paused = False
-            self.ecosystem.set_paused(False)
-            self.view.set_simulation_state(True, False)
+        print(f"✅ Partida creada: {name} (ID: {save_id})")
 
-    def load_flow(self):
-        saves = self.save_manager.list_saves()
+    def ui_rename_save(self, save_id: str, new_name: str):
+        try:
+            new_id = self.save_manager.rename_save(save_id, new_name)
+            if self.current_save_id == save_id:
+                self.current_save_id = new_id
+            self.refresh_save_slots()
+            print(f"✏️  Partida renombrada a '{new_name}'")
+        except Exception as e:
+            print(f"❌ Error al renombrar partida: {e}")
 
-        if not saves:
-            print("📭 No hay partidas guardadas en /saves")
-            return
+    def ui_delete_save(self, save_id: str):
+        try:
+            self.save_manager.delete_save(save_id)
+            if self.current_save_id == save_id:
+                self.current_save_id = None
+            self.refresh_save_slots()
+            print("🗑️  Partida eliminada.")
+        except Exception as e:
+            print(f"❌ Error al eliminar partida: {e}")
 
-        was_paused = self.simulation_paused
-        if self.simulation_running and not was_paused:
-            self.simulation_paused = True
-            self.ecosystem.set_paused(True)
-            self.view.set_simulation_state(True, True)
-
-        print("\n📂 Partidas guardadas:")
-        for i, s in enumerate(saves, start=1):
-            print(f" [{i}] {s['save_name']} | {s['saved_at']} | Ciclo:{s['cycle']} | Ent:{s['entities_total']}")
-            if s.get("summary"):
-                print(f"     ↳ {s['summary']}")
-
-        choice = input("\nSelecciona número para cargar (ENTER para cancelar): ").strip()
-        if not choice:
-            print("↩️ Carga cancelada.")
-            if self.simulation_running and not was_paused:
-                self.simulation_paused = False
-                self.ecosystem.set_paused(False)
-                self.view.set_simulation_state(True, False)
-            return
-
-        if not choice.isdigit() or not (1 <= int(choice) <= len(saves)):
-            print("❌ Selección inválida.")
-            if self.simulation_running and not was_paused:
-                self.simulation_paused = False
-                self.ecosystem.set_paused(False)
-                self.view.set_simulation_state(True, False)
-            return
-
-        selected = saves[int(choice) - 1]
-        print("\n⚠️ Confirmación de carga")
-        print(f" - Nombre: {selected['save_name']}")
-        print(f" - Fecha: {selected['saved_at']}")
-        print(f" - Resumen: {selected.get('summary','')}")
-        print(" - ADVERTENCIA: Se perderá el progreso actual no guardado.")
-
-        confirm = input("¿Cargar esta partida? (s/n): ").strip().lower()
-        if confirm != "s":
-            print("↩️ Carga cancelada.")
-            if self.simulation_running and not was_paused:
-                self.simulation_paused = False
-                self.ecosystem.set_paused(False)
-                self.view.set_simulation_state(True, False)
-            return
-
-        bundle = self.save_manager.load(selected["save_id"])
+    def _apply_loaded_bundle(self, bundle: Dict[str, Any]):
+        """
+        Aplica el contenido de un guardado al ecosistema (y al RNG).
+        NO inicia la simulación: solo deja el estado listo.
+        """
         state = bundle.get("state", {})
 
-        # Restaurar random para continuidad exacta
         rnd = state.get("random_state_b64")
         if isinstance(rnd, str):
             self._random_state_from_b64(rnd)
 
-        # Restaurar ecosistema completo
-        eco_data = state.get("ecosystem", {})
+        eco_data = state.get("ecosystem")
         if isinstance(eco_data, dict):
             self.ecosystem.load_from_dict(eco_data)
 
-        # Restaurar estado controlador
-        ctrl = state.get("controller", {})
-        self.simulation_running = bool(ctrl.get("simulation_running", True))
-        self.simulation_paused = bool(ctrl.get("simulation_paused", False))
+        # Reseteamos estado de control: simulación detenida pero lista
+        self.simulation_running = False
+        self.simulation_paused = False
+        self.ecosystem.set_paused(True)
+        self.view.set_simulation_state(False, False)
+        self.view.set_turn_progress(0.0)
+
+    def ui_load_save(self, save_id: str):
+        """
+        Carga una partida desde el archivo pero NO arranca la simulación automáticamente.
+        El usuario debe presionar 'Comenzar' para entrar a la simulación.
+        """
+        try:
+            bundle = self.save_manager.load(save_id)
+            self._apply_loaded_bundle(bundle)
+            self.current_save_id = save_id
+            self.loaded_from_save = True
+            self.refresh_save_slots()
+            print("📂 Partida cargada. Presiona 'Comenzar' para iniciar la simulación.")
+        except Exception as e:
+            print(f"❌ Error al cargar partida: {e}")
+
+    # ------------------------------------------------------------------
+    #                 CONTROL DE SIMULACIÓN
+    # ------------------------------------------------------------------
+
+    def start_simulation(self):
+        """Inicia la simulación.
+
+        Restricción: debe existir una partida seleccionada.
+        Si se cargó desde un guardado, se usa ese estado.
+        Si NO viene de un guardado, se inicializa desde la configuración actual.
+        """
+        if self.simulation_running:
+            return
+
+        if not self.current_save_id:
+            print("⚠️ Debes crear o seleccionar una partida antes de comenzar.")
+            return
+
+        print("▶️  Iniciando simulación...")
+
+        # Si NO venimos de un guardado cargado, arrancamos desde config actual
+        if not self.loaded_from_save:
+            config = self.view.get_configuration()
+            self.ecosystem.initialize(config)
+
+        # Marcar estado de simulación
+        self.simulation_running = True
+        self.simulation_paused = False
+        self.ecosystem.set_paused(False)
+        self.view.set_simulation_state(True, False)
+        self.view.set_turn_progress(0.0)
+
+        self.next_turn_time = pygame.time.get_ticks() + cfg.TURN_DURATION_MS
+
+    def stop_simulation(self):
+        """Detiene la simulación actual (pero NO elimina la partida)."""
+        if not self.simulation_running:
+            return
+
+        print("⏹️  Deteniendo simulación...")
+        self.simulation_running = False
+        self.simulation_paused = False
+        self.ecosystem.set_paused(True)
+        self.view.set_simulation_state(False, False)
+
+        # Mantenemos loaded_from_save como estaba; si venía de guardado, puede retomarse
+        self.view.set_turn_progress(0.0)
+
+    def toggle_pause(self):
+        """Pausa o reanuda la simulación."""
+        if not self.simulation_running:
+            return
+
+        self.simulation_paused = not self.simulation_paused
         self.ecosystem.set_paused(self.simulation_paused)
+        self.view.set_simulation_state(True, self.simulation_paused)
 
-        # Turn bar
-        tp = float(ctrl.get("turn_progress", 0.0))
-        self.view.set_turn_progress(tp)
-        remaining_ms = int(max(0, min(cfg.TURN_DURATION_MS, (1.0 - tp) * cfg.TURN_DURATION_MS)))
-        self.next_turn_time = pygame.time.get_ticks() + remaining_ms
+        print(
+            f"{'⏸️' if self.simulation_paused else '▶️'} "
+            f"Simulación {'pausada' if self.simulation_paused else 'reanudada'}"
+        )
 
-        # UI
-        self.view.set_simulation_state(self.simulation_running, self.simulation_paused)
+    # ------------------------------------------------------------------
+    #                    UPDATE LOOP
+    # ------------------------------------------------------------------
 
-        print("✅ Partida cargada correctamente.\n")
+    def update(self, delta_time: float):
+        """Actualiza la lógica del juego."""
+        if self.simulation_running and not self.simulation_paused:
+            current_time = pygame.time.get_ticks()
+            time_until_turn = max(0, self.next_turn_time - current_time)
+            progress = 1.0 - (time_until_turn / cfg.TURN_DURATION_MS)
+            self.view.set_turn_progress(progress)
 
-        # Si antes estaba corriendo y no estaba pausado, vuelve a ese estado solo si la partida lo indica
-        # (aquí respetamos el estado guardado).
+            if current_time >= self.next_turn_time:
+                # Aquí podrías marcar un "turno" discreto si quisieras
+                self.next_turn_time = current_time + cfg.TURN_DURATION_MS
 
-    # =========================
-    #          LOOP
-    # =========================
+        # Actualizamos el ecosistema (movimientos, IA, etc.)
+        self.ecosystem.update(delta_time)
+        self.view.process_ecosystem_events(self.ecosystem.events)
+        self.view.update_particles()
+
+    # ------------------------------------------------------------------
+    #                      BUCLE PRINCIPAL
+    # ------------------------------------------------------------------
+
     def run(self):
         if not self.initialize():
             return
@@ -329,6 +357,7 @@ class GameController:
         except Exception as e:
             print(f"\n❌ Error en el bucle principal: {e}")
             import traceback
+
             traceback.print_exc()
         finally:
             self.shutdown()
