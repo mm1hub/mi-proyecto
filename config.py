@@ -27,20 +27,20 @@ DAYS_PER_SEASON = 6
 SEASONS_ORDER = ("Primavera", "Verano", "Otoño", "Invierno")
 
 # ============================================================================
-# POBLACIÓN POR DEFECTO Y LÍMITES
+# POBLACIÓN POR DEFECTO AND LÍMITES
 # ============================================================================
 DEFAULT_POPULATION = {
-    "plantas": 20,
-    "peces": 12,
-    "truchas": 8,
-    "tiburones": 3,
+    "plantas": 25,
+    "peces": 15,
+    "truchas": 5,
+    "tiburones": 2,
 }
 
 POPULATION_LIMITS = {
     "plantas": {"min": 0, "max": 100},
-    "peces": {"min": 0, "max": 100},
-    "truchas": {"min": 0, "max": 100},
-    "tiburones": {"min": 0, "max": 100},
+    "peces": {"min": 0, "max": 50},
+    "truchas": {"min": 0, "max": 30},
+    "tiburones": {"min": 0, "max": 15},
 }
 
 # ============================================================================
@@ -133,20 +133,35 @@ SEASONS_CONFIG = {
 }
 
 # ============================================================================
-# COMPORTAMIENTO DE ESPECIES
+# COMPORTAMIENTO DE ESPECIES (NUEVO)
 # ============================================================================
 
+# Velocidades base (parametrizadas)
+FISH_BASE_SPEED_MIN = 1.0
+FISH_BASE_SPEED_MAX = 2.0
+
+TROUT_BASE_SPEED_MIN = 0.9
+TROUT_BASE_SPEED_MAX = 1.9
+
+SHARK_BASE_SPEED_MIN = 0.9
+SHARK_BASE_SPEED_MAX = 1.3
+
 # Cardúmenes de peces (boids simplificado)
-FISH_SCHOOL_RADIUS = 100          # Radio para considerar vecinos de cardumen
+FISH_SCHOOL_RADIUS = 140          # Radio para considerar vecinos de cardumen
 FISH_SCHOOL_MIN_NEIGHBORS = 2     # Mínimo de vecinos para comportarse en cardumen
 FISH_SEPARATION_DISTANCE = 30     # Distancia mínima antes de separarse
 
 # Truchas cazando en grupo
-TROUT_PACK_RADIUS = 300           # Radio para buscar compañeras de caza
-TROUT_MAX_PACK_SIZE = 2           # Tamaño máximo del grupo de ataque (parametrizable)
+TROUT_PACK_RADIUS = 220           # Radio para buscar compañeras de caza
+TROUT_MAX_PACK_SIZE = 3           # Tamaño máximo del grupo de ataque
+TROUT_MIN_ALLIES_FOR_PACK = 1     # Nº mínimo de compañeras para formar grupo
+
+# Truchas escapando de tiburones
+TROUT_ESCAPE_RADAR = 190              # Radio para detectar tiburones peligrosos
+TROUT_ESCAPE_SPEED_MULTIPLIER = 1.6   # Multiplicador de velocidad al huir
 
 # Tiburones
-SHARK_HUNGER_THRESHOLD = 0.55     # Cuando pasan esta proporción se vuelven más agresivos
+SHARK_HUNGER_THRESHOLD = 0.65     # Cuando pasan esta proporción se vuelven más agresivos
 SHARK_HUNT_RADIUS_RELAXED = 260   # Radio de caza normal
 SHARK_HUNT_RADIUS_HUNGRY = 400    # Radio de caza cuando están muy hambrientos
 SHARK_TARGET_PERSISTENCE = 480    # Distancia máxima para seguir persiguiendo a la misma trucha

@@ -107,6 +107,8 @@ class Animal(Entity):
         self.max_energy = max_energy
         self.lifespan = lifespan
         self.age = 0
+
+        # Velocidad base (cada especie la redefine)
         self.base_speed = random.uniform(0.5, 1.5)
         self.speed = self.base_speed
         self.base_consumption = 2.0
@@ -116,6 +118,9 @@ class Animal(Entity):
         # Estado de IA
         self.state = "idle"
         self.target_entity: Optional[Entity] = None
+
+        # Multiplicador de la estación actual (para poder reutilizarlo)
+        self.season_move_mult = 1.0
 
     def update(self, delta_time: float, ecosystem: "Ecosystem"):
         """Actualiza el estado del animal."""
@@ -145,10 +150,10 @@ class Animal(Entity):
         season_cfg = cfg.SEASONS_CONFIG.get(season_name, {})
         modifiers = season_cfg.get("modifiers", {})
 
-        move_mult = modifiers.get("movement", 1.0)
+        self.season_move_mult = modifiers.get("movement", 1.0)
         cons_mult = modifiers.get("energy_consumption", 1.0)
 
-        self.speed = self.base_speed * move_mult
+        self.speed = self.base_speed * self.season_move_mult
         self.consumption = self.base_consumption * cons_mult
 
     def is_dead(self) -> bool:
@@ -209,7 +214,9 @@ class Fish(Animal):
 
     def __init__(self, x: float, y: float, name: str = "Pejerrey"):
         super().__init__(x, y, 20, 20, name, energy=70, max_energy=100, lifespan=120)
-        self.speed = random.uniform(1.0, 2.0)
+        # Velocidad parametrizada
+        self.base_speed = random.uniform(cfg.FISH_BASE_SPEED_MIN, cfg.FISH_BASE_SPEED_MAX)
+        self.speed = self.base_speed
         self.consumption = 1.0
 
     def decide_action(self, ecosystem: "Ecosystem"):
@@ -313,14 +320,16 @@ class Trout(Animal):
 
     def __init__(self, x: float, y: float, name: str = "Trucha"):
         super().__init__(x, y, 35, 35, name, energy=120, max_energy=180, lifespan=180)
-        self.speed = random.uniform(0.75, 1.75)
+        # Velocidad parametrizada
+        self.base_speed = random.uniform(cfg.TROUT_BASE_SPEED_MIN, cfg.TROUT_BASE_SPEED_MAX)
+        self.speed = self.base_speed
         self.consumption = 1.5
 
     def decide_action(self, ecosystem: "Ecosystem"):
         """Lógica de IA de la trucha."""
 
         # Instinto de supervivencia: huir de tiburones
-        sharks = ecosystem.get_nearby_sharks(self, 170)
+        sharks = ecosystem.get_nearby_sharks(self, cfg.TROUT_ESCAPE_RADAR)
         if sharks:
             shark = sharks[0]
             dx = self.x - shark.x
@@ -330,15 +339,22 @@ class Trout(Animal):
                 flee_distance = 140
                 self.target_x = self.x + (dx / distance) * flee_distance
                 self.target_y = self.y + (dy / distance) * flee_distance
+                # Aumenta la velocidad cuando está escapando
+                self.speed = (
+                    self.base_speed * self.season_move_mult * cfg.TROUT_ESCAPE_SPEED_MULTIPLIER
+                )
                 self.state = "fleeing"
                 return
+        else:
+            # Si no está huyendo, volver a la velocidad "normal" de la estación
+            self.speed = self.base_speed * self.season_move_mult
 
-        # Hambre: cazar peces, preferiblemente en grupo
+        # Hambre: cazar peces, individual o en grupo
         hungry = self.energy < self.max_energy * 0.45
 
         # Si ya tiene objetivo válido, seguirlo
         if hungry and isinstance(self.target_entity, Fish) and self.target_entity in ecosystem.fish:
-            target = self.target_entity
+            target: Optional[Fish] = self.target_entity  # type: ignore[assignment]
         elif hungry:
             fishes = ecosystem.get_nearby_fish(self, 260)
             target = fishes[0] if fishes else None
@@ -347,14 +363,27 @@ class Trout(Animal):
             target = None
 
         if hungry and target is not None:
-            # Formar grupo de hasta TROUT_MAX_PACK_SIZE
-            pack = ecosystem.form_trout_pack(self, cfg.TROUT_PACK_RADIUS, cfg.TROUT_MAX_PACK_SIZE)
+            # Ver cuántas truchas aliadas hay cerca
+            allies = ecosystem.get_nearby_trout(self, cfg.TROUT_PACK_RADIUS)
 
-            for mate in pack:
-                mate.target_entity = target
-                mate.target_x = target.x
-                mate.target_y = target.y
-                mate.state = "hunting"
+            if len(allies) >= cfg.TROUT_MIN_ALLIES_FOR_PACK:
+                # Formar grupo de hasta TROUT_MAX_PACK_SIZE (incluye al líder)
+                pack = ecosystem.form_trout_pack(
+                    self,
+                    cfg.TROUT_PACK_RADIUS,
+                    cfg.TROUT_MAX_PACK_SIZE,
+                )
+                for mate in pack:
+                    mate.target_entity = target
+                    mate.target_x = target.x
+                    mate.target_y = target.y
+                    mate.state = "hunting"
+            else:
+                # Ataca de forma individual
+                self.target_entity = target
+                self.target_x = target.x
+                self.target_y = target.y
+                self.state = "hunting"
 
             return
 
@@ -405,7 +434,9 @@ class Shark(Animal):
 
     def __init__(self, x: float, y: float, name: str = "Tiburón"):
         super().__init__(x, y, 45, 45, name, energy=200, max_energy=300, lifespan=300)
-        self.speed = random.uniform(0.4, 1.2)
+        # Velocidad parametrizada
+        self.base_speed = random.uniform(cfg.SHARK_BASE_SPEED_MIN, cfg.SHARK_BASE_SPEED_MAX)
+        self.speed = self.base_speed
         self.consumption = 0.8
 
     def decide_action(self, ecosystem: "Ecosystem"):
@@ -618,8 +649,8 @@ class Ecosystem:
     def _update_animals(self, delta_time: float):
         """Actualiza todos los animales."""
         # Peces
-        dead_fish = []
-        new_fish = []
+        dead_fish: List[Fish] = []
+        new_fish: List[Fish] = []
 
         for fish in self.fish:
             if not fish.update(delta_time, self):
@@ -634,8 +665,8 @@ class Ecosystem:
                     )
 
         # Truchas
-        dead_trout = []
-        new_trout = []
+        dead_trout: List[Trout] = []
+        new_trout: List[Trout] = []
 
         for trout in self.trout:
             if not trout.update(delta_time, self):
@@ -650,8 +681,8 @@ class Ecosystem:
                     )
 
         # Tiburones
-        dead_sharks = []
-        new_sharks = []
+        dead_sharks: List[Shark] = []
+        new_sharks: List[Shark] = []
 
         for shark in self.sharks:
             if not shark.update(delta_time, self):
@@ -694,7 +725,8 @@ class Ecosystem:
                 if fish.rect.colliderect(plant.rect):
                     energy = fish.eat(plant)
                     if energy > 0:
-                        self.plants.remove(plant)
+                        if plant in self.plants:
+                            self.plants.remove(plant)
                         self.events.append(
                             {
                                 "type": "eat",
@@ -827,7 +859,8 @@ class Ecosystem:
             "day": self.time_system.day,
             "time_of_day": self.time_system.get_time_of_day(),
             "day_progress": self.time_system.day_progress,
-            "season_progress": (self.time_system.day % cfg.DAYS_PER_SEASON) / cfg.DAYS_PER_SEASON,
+            "season_progress": (self.time_system.day % cfg.DAYS_PER_SEASON)
+            / cfg.DAYS_PER_SEASON,
             "is_night": self.time_system.is_night(),
             "light_factor": self.time_system.get_light_factor(),
         }
