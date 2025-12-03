@@ -232,6 +232,10 @@ class GameView:
                     return "quit"
                 elif event.key == pygame.K_SPACE and self.simulation_running:
                     return "toggle_pause"
+                elif event.key == pygame.K_F5 and self.simulation_running:
+                    return "save"
+                elif event.key == pygame.K_F9:
+                    return "load"
                     
         return None
         
