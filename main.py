@@ -2,6 +2,7 @@
 Controlador principal del juego.
 Incluye integración con sistema de guardado/carga + gestor de partidas UI + guardado manual.
 + Sistema de AUTOGUARDADO configurable desde la interfaz.
++ Limpieza de archivos temporales al cerrar la aplicación (elimina __pycache__).
 """
 
 import sys
@@ -10,6 +11,8 @@ import base64
 import pickle
 import random
 from typing import Any, Dict, Optional
+import shutil
+import os
 
 import config as cfg
 from game_logic import Ecosystem
@@ -414,8 +417,25 @@ class GameController:
 
     def shutdown(self):
         print("\n🔴 Apagando juego...")
+
+        # Limpiar archivos temporales: eliminar la carpeta __pycache__
+        self.clean_temp_files()
+
         self.view.cleanup()
         print("✓ Juego cerrado correctamente")
+
+    def clean_temp_files(self):
+        """Elimina archivos temporales como __pycache__ al cerrar el juego."""
+        pycache_path = "__pycache__"
+        
+        if os.path.exists(pycache_path):
+            try:
+                shutil.rmtree(pycache_path)  # Elimina la carpeta __pycache__ y todo su contenido
+                print("🔄 Carpeta __pycache__ eliminada correctamente.")
+            except Exception as e:
+                print(f"⚠️ No se pudo eliminar __pycache__: {e}")
+        else:
+            print("⚠️ No se encontró la carpeta __pycache__ para eliminar.")
 
 
 def main():
