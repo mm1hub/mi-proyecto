@@ -1,6 +1,7 @@
 """
 Controlador principal del juego.
 Incluye integración con sistema de guardado/carga + gestor de partidas UI + guardado manual.
++ Sistema de AUTOGUARDADO configurable desde la interfaz.
 """
 
 import sys
@@ -30,8 +31,13 @@ class GameController:
         self.last_time = pygame.time.get_ticks()
 
         self.current_save_id: Optional[str] = None
-        self.current_save_name: str = ""   # <-- NUEVO: para UI (arriba izq)
+        self.current_save_name: str = ""   # usado para mostrar el nombre arriba izq
         self.loaded_from_save: bool = False
+
+        # ---------------- AUTOGUARDADO ----------------
+        self.auto_save_enabled: bool = False          # si el sistema está activo
+        self.auto_save_interval_days: int = 30        # N días (configurable)
+        self._last_auto_saved_day: Optional[int] = None  # último día en que se hizo autoguardado
 
     # ---------------- init ----------------
 
@@ -112,6 +118,26 @@ class GameController:
                 if save_id:
                     self.ui_manual_save_overwrite(save_id)
 
+            # ---------- NUEVOS EVENTOS: AUTOGUARDADO ----------
+            elif t == "auto_save_toggle":
+                enabled = bool(ev.get("enabled", False))
+                self.auto_save_enabled = enabled
+                if enabled:
+                    # al activar, fijamos el día actual como referencia
+                    stats = self.ecosystem.get_statistics()
+                    self._last_auto_saved_day = stats.get("day", 0)
+                    print(f"🔁 Autoguardado activado (cada {self.auto_save_interval_days} días).")
+                else:
+                    # al desactivar, cortamos completamente la lógica
+                    self._last_auto_saved_day = None
+                    print("⏸️ Autoguardado desactivado.")
+
+            elif t == "auto_save_update_interval":
+                days = int(ev.get("days", self.auto_save_interval_days))
+                days = max(1, days)
+                self.auto_save_interval_days = days
+                print(f"⚙️ Intervalo de autoguardado actualizado a cada {self.auto_save_interval_days} días.")
+
             return True
 
         if ev == "quit":
@@ -140,7 +166,12 @@ class GameController:
 
     def _build_meta_for_save(self) -> Dict[str, Any]:
         stats = self.ecosystem.get_statistics()
-        counts = {"plants": stats["plants"], "fish": stats["fish"], "trout": stats["trout"], "sharks": stats["sharks"]}
+        counts = {
+            "plants": stats["plants"],
+            "fish": stats["fish"],
+            "trout": stats["trout"],
+            "sharks": stats["sharks"],
+        }
         total = sum(counts.values())
         summary = (
             f"{stats['season']} | Día {stats['day']} | {stats['time_of_day']} | "
@@ -227,11 +258,16 @@ class GameController:
             self.loaded_from_save = True
             self.refresh_save_slots()
 
+            # al cargar, si el autoguardado está activo, anclamos el día actual
+            if self.auto_save_enabled:
+                stats = self.ecosystem.get_statistics()
+                self._last_auto_saved_day = stats.get("day", 0)
+
             print("📂 Partida cargada. Presiona 'Comenzar' para entrar.")
         except Exception as e:
             print(f"❌ Error al cargar: {e}")
 
-    # ---------------- NUEVO: guardado manual ----------------
+    # ---------------- guardado manual ----------------
 
     def ui_manual_save_overwrite(self, save_id: str):
         """
@@ -245,6 +281,44 @@ class GameController:
             print("💾 Guardado manual realizado (sobrescrito).")
         except Exception as e:
             print(f"❌ Error guardado manual: {e}")
+
+    # ---------------- AUTOGUARDADO (LÓGICA INTERNA) ----------------
+
+    def _maybe_auto_save(self):
+        """
+        Verifica si corresponde hacer un autoguardado según:
+        - Autoguardado activado
+        - Simulación corriendo y no en pausa
+        - Existe una partida actual (current_save_id)
+        - Han pasado N días desde el último autoguardado
+        """
+        if not self.auto_save_enabled:
+            return
+        if not self.simulation_running or self.simulation_paused:
+            return
+        if not self.current_save_id:
+            return
+
+        stats = self.ecosystem.get_statistics()
+        current_day = stats.get("day", 0)
+
+        if self._last_auto_saved_day is None:
+            self._last_auto_saved_day = current_day
+            return
+
+        if current_day - self._last_auto_saved_day >= self.auto_save_interval_days:
+            try:
+                meta = self._build_meta_for_save()
+                state = self._build_state_for_save()
+                self.save_manager.overwrite(self.current_save_id, meta, state)
+                self.refresh_save_slots()
+                self._last_auto_saved_day = current_day
+
+                print(f"💾 Autoguardado automático realizado (Día {current_day}).")
+                # Mensaje visual en la interfaz (no intrusivo)
+                self.view.set_auto_save_feedback(f"Autoguardado automático - Día {current_day}")
+            except Exception as e:
+                print(f"❌ Error en autoguardado: {e}")
 
     # ---------------- simulación ----------------
 
@@ -269,6 +343,11 @@ class GameController:
 
         # asegurar nombre visible arriba izq
         self.view.set_active_save_name(self.current_save_name)
+
+        # reset de referencia del autoguardado si está activo
+        if self.auto_save_enabled:
+            stats = self.ecosystem.get_statistics()
+            self._last_auto_saved_day = stats.get("day", 0)
 
         self.next_turn_time = pygame.time.get_ticks() + cfg.TURN_DURATION_MS
 
@@ -300,9 +379,15 @@ class GameController:
             if now >= self.next_turn_time:
                 self.next_turn_time = now + cfg.TURN_DURATION_MS
 
+        # Actualizamos lógica del ecosistema
         self.ecosystem.update(delta_time)
         self.view.process_ecosystem_events(self.ecosystem.events)
-        self.view.update_particles()
+
+        # Partículas + timers de UI (incluye mensaje de autoguardado)
+        self.view.update_particles(delta_time)
+
+        # Verificamos si corresponde hacer autoguardado
+        self._maybe_auto_save()
 
     def run(self):
         if not self.initialize():

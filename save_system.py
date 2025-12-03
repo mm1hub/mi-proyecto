@@ -132,7 +132,7 @@ class SaveManager:
         if os.path.exists(path):
             os.remove(path)
 
-    # ------------------- NUEVO: sobrescribir guardado actual -------------------
+    # ------------------- sobrescribir guardado actual -------------------
 
     def overwrite(self, save_id: str, meta_updates: Dict[str, Any], state: Dict[str, Any]) -> None:
         """
@@ -148,12 +148,10 @@ class SaveManager:
 
         version = data.get("version", 1)
         meta = data.get("meta", {})
-        # Mantener save_id y save_name si existen
         meta["save_id"] = save_id
         meta["save_name"] = meta.get("save_name", meta_updates.get("save_name", save_id))
         meta["saved_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
 
-        # Aplicar updates (cycle, summary, counts, active_config, etc.)
         for k, v in meta_updates.items():
             if k not in ("save_id", "saved_at"):
                 meta[k] = v
