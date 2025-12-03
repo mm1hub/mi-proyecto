@@ -143,7 +143,7 @@ class GameController:
 
         return True
 
-    # ---------------- CONTROL DE SIMULACIÓN (Métodos recuperados) ----------------
+    # ---------------- CONTROL DE SIMULACIÓN ----------------
 
     def start_simulation(self):
         if self.simulation_running:

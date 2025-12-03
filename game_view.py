@@ -18,7 +18,6 @@ class SaveSlotViewModel:
     display_info: str 
 
 class AssetLoader:
-    # (El contenido de AssetLoader se mantiene igual que tu original...)
     def __init__(self):
         self.images: Dict[str, pygame.Surface] = {}
         self.sounds: Dict[str, pygame.mixer.Sound] = {}
@@ -52,7 +51,6 @@ class AssetLoader:
             except: self.fonts[key] = pygame.font.Font(None, size)
         return self.fonts[key]
 
-# (La clase Particle se mantiene igual...)
 class Particle:
     def __init__(self, x: float, y: float, text: str, color: Tuple[int, int, int]):
         self.x, self.y, self.text, self.color = x, y, text, color
@@ -106,7 +104,6 @@ class GameView:
 
         self.recalculate_layout()
 
-    # (Métodos de layout e initialize se mantienen igual...)
     def recalculate_layout(self):
         p_x = self.panel_rect.x + 15
         p_w = cfg.PANEL_WIDTH - 30
@@ -155,7 +152,6 @@ class GameView:
         self.auto_save_feedback = message
         self.auto_save_feedback_timer = max(0.0, float(duration))
 
-    # (Handle events y lógica visual se mantienen igual, solo ajustando accesos a slots...)
     def handle_events(self) -> Optional[Any]:
         for event in pygame.event.get():
             if event.type == pygame.QUIT: return "quit"
@@ -194,7 +190,7 @@ class GameView:
             self._reset_input()
             return None
 
-        # Toolbar y Autosave (Sin cambios lógicos mayores)
+        # Toolbar y Autosave
         if not self.simulation_running:
             if self.toolbar_buttons["start"].collidepoint(pos): return "start" if self.selected_save_id else None
         else:
@@ -266,7 +262,6 @@ class GameView:
 
         return None
 
-    # (Particle update y process events se mantienen igual...)
     def update_particles(self, delta_time: float):
         self.particles = [p for p in self.particles if not p.update()]
         if self.auto_save_feedback_timer > 0:
@@ -292,7 +287,6 @@ class GameView:
                 snd = self.assets.load_sound("morir.mp3")
                 if snd: snd.play()
 
-    # (Render y Draws sin cambios mayores, salvo el acceso a save_slots)
     def render(self, ecosystem: Ecosystem):
         self.screen.fill(cfg.UI_BLACK)
         self.draw_game_area(ecosystem)
@@ -310,7 +304,7 @@ class GameView:
         rect = pygame.Rect(0, 0, cfg.GAME_AREA_WIDTH, cfg.SCREEN_HEIGHT)
         pygame.draw.rect(self.screen, cfg.WATER_DARK, rect)
         
-        # Renderizado de Entidades (Optimizado)
+        # Renderizado de Entidades
         all_entities = ecosystem.plants + ecosystem.fish + ecosystem.trout + ecosystem.sharks
         all_entities.sort(key=lambda e: e.y)
         

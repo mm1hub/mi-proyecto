@@ -12,7 +12,7 @@ from pygame import Color
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 768
 FPS = 60
-PANEL_WIDTH = 300  # Un poco más ancho para respirar
+PANEL_WIDTH = 300  
 GAME_AREA_WIDTH = SCREEN_WIDTH - PANEL_WIDTH
 
 TURN_DURATION_MS = 1000
@@ -75,7 +75,7 @@ WATER_LIGHT = Color(173, 216, 230)
 WATER_DARK = Color(0, 105, 148)
 UI_BLACK = Color(20, 20, 20)
 
-# Colores de UI Legacy (Mapeados al nuevo tema para compatibilidad si algo falta)
+# Colores de UI Legacy
 PANEL_BG = UI_BG
 TEXT_TITLE = TEXT_ACCENT
 TEXT_NORMAL = TEXT_SEC
@@ -127,7 +127,7 @@ SEASONS_CONFIG = {
     },
 }
 
-# Configuración de comportamiento (Sin cambios)
+# Configuración de comportamiento de entidades
 FISH_BASE_SPEED_MIN = 1.0
 FISH_BASE_SPEED_MAX = 2.0
 TROUT_BASE_SPEED_MIN = 0.9
