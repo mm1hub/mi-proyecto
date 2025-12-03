@@ -1,27 +1,20 @@
-# save_system.py
 import os
 import json
 import re
 from datetime import datetime
 from typing import Any, Dict, List
-
+import shutil
 
 class SaveManager:
     """
-    Gestor de archivos de guardado.
-
-    - Cada partida es un archivo JSON en `saves/`.
-    - Formato:
-        {
-          "version": 1,
-          "meta": {...},
-          "state": {...}
-        }
+    Gestor de archivos de guardado con Backups automáticos.
     """
-
-    def __init__(self, save_dir: str = "saves"):
+    def __init__(self, save_dir: str = "saves", backup_dir: str = "backups"):
         self.save_dir = save_dir
+        self.backup_dir = backup_dir
+
         os.makedirs(self.save_dir, exist_ok=True)
+        os.makedirs(self.backup_dir, exist_ok=True)
 
     # ------------------- helpers internos -------------------
 
@@ -38,6 +31,20 @@ class SaveManager:
 
     def _path_for_id(self, save_id: str) -> str:
         return os.path.join(self.save_dir, f"{save_id}.json")
+
+    def _backup_save(self, save_id: str) -> None:
+        """Crea un backup del archivo de guardado actual antes de sobrescribirlo."""
+        current_path = self._path_for_id(save_id)
+        if os.path.exists(current_path):
+            timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+            backup_filename = f"{save_id}_backup_{timestamp}.json"
+            backup_path = os.path.join(self.backup_dir, backup_filename)
+
+            # Realizamos la copia de seguridad
+            shutil.copy(current_path, backup_path)
+            print(f"💾 Backup creado: {backup_path}")
+        else:
+            print(f"⚠️ No se encontró el guardado para hacer backup: {save_id}")
 
     # ------------------- API principal -------------------
 
@@ -137,8 +144,11 @@ class SaveManager:
     def overwrite(self, save_id: str, meta_updates: Dict[str, Any], state: Dict[str, Any]) -> None:
         """
         Sobrescribe el MISMO archivo (misma partida / mismo save_id).
-        No cambia el formato del guardado: solo re-escribe el JSON existente.
+        Realiza un backup antes de sobrescribir el archivo.
         """
+        # Crear backup antes de sobrescribir
+        self._backup_save(save_id)
+
         path = self._path_for_id(save_id)
         if not os.path.exists(path):
             raise FileNotFoundError(f"No existe guardado con id {save_id}")
