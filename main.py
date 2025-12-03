@@ -1,153 +1,219 @@
-"""Archivo principal que sincroniza la logica del ecosistema con la interfaz."""
+"""
+Controlador principal del juego.
+Versión simplificada pero funcional.
+"""
 
-# Empezamos con los imports. Noten la clara separación de responsabilidades:
-import pygame  # El motor gráfico, nuestro "lienzo" y gestor de eventos.
+import pygame
+import sys
+from typing import Optional
 
-# Aquí importamos nuestro 'Modelo' (Ecosistema) y las constantes del dominio.
-from logic import Ecosistema, WIDTH, HEIGHT, FPS, TURNO_DURACION_MS
-# Y aquí importamos nuestra 'Vista'. El 'Modelo' y la 'Vista' no se conocen.
-from view import Vista
+import config as cfg
+from game_logic import Ecosystem
+from game_view import GameView
+
+
+class GameController:
+    """Controla el flujo principal del juego."""
+    
+    def __init__(self):
+        self.view = GameView()
+        self.ecosystem = Ecosystem()
+        self.running = False
+        
+        # Estado del juego
+        self.simulation_running = False
+        self.simulation_paused = False
+        self.next_turn_time = 0
+        
+        # Temporizadores
+        self.clock = pygame.time.Clock()
+        self.last_time = pygame.time.get_ticks()
+        
+    def initialize(self) -> bool:
+        """Inicializa todos los sistemas."""
+        print("=" * 60)
+        print("SIMULADOR DE ECOSISTEMA ACUÁTICO")
+        print("=" * 60)
+        
+        # Inicializar vista
+        if not self.view.initialize():
+            print("✗ Error inicializando la vista")
+            return False
+            
+        # CORREGIDO: NO inicializamos el ecosistema al inicio
+        # Solo creamos un ecosistema vacío
+        # El ecosistema se inicializará cuando se presione "Comenzar"
+        
+        # Iniciar música de fondo
+        self.start_background_music()
+        
+        print("✓ Juego inicializado correctamente")
+        print("  Controles:")
+        print("  - Usa los botones + y - para configurar las poblaciones iniciales")
+        print("  - Click en 'Comenzar' para iniciar la simulación")
+        print("  - Click en 'Pausar/Reanudar' para controlar la simulación")
+        print("  - Click en 'Detener' para terminar la simulación")
+        print("  - ESPACIO para pausar/reanudar")
+        print("  - ESC para salir")
+        print()
+        
+        return True
+        
+    def start_background_music(self):
+        """Inicia la música de fondo."""
+        try:
+            pygame.mixer.music.load("assets/musica_fondo_mar.mp3")
+            pygame.mixer.music.set_volume(0.3)
+            pygame.mixer.music.play(-1)  # Loop infinito
+        except Exception as e:
+            print(f"⚠️  No se pudo cargar música de fondo: {e}")
+            
+    def handle_events(self) -> bool:
+        """Procesa eventos. Retorna False si se debe cerrar el juego."""
+        # Procesar eventos de Pygame
+        event_result = self.view.handle_events()
+        
+        if event_result == "quit":
+            return False
+        elif event_result == "toggle_pause":
+            self.toggle_pause()
+        elif event_result == "start":
+            self.start_simulation()
+        elif event_result == "stop":
+            self.stop_simulation()
+        # "config_changed" no requiere acción del controlador
+            
+        return True
+        
+    def start_simulation(self):
+        """Inicia una nueva simulación."""
+        if self.simulation_running:
+            return
+            
+        print("▶️  Iniciando simulación...")
+        
+        # Obtener configuración de la vista
+        config = self.view.get_configuration()
+        print(f"  Configuración: {config}")
+        
+        # Inicializar ecosistema con la configuración seleccionada
+        self.ecosystem.initialize(config)
+        
+        # Actualizar estado
+        self.simulation_running = True
+        self.simulation_paused = False
+        self.ecosystem.set_paused(False)
+        
+        # Reiniciar temporizador de turnos
+        self.next_turn_time = pygame.time.get_ticks() + cfg.TURN_DURATION_MS
+        
+        # Actualizar vista
+        self.view.set_simulation_state(True, False)
+        
+    def stop_simulation(self):
+        """Detiene la simulación actual."""
+        if not self.simulation_running:
+            return
+            
+        print("⏹️  Deteniendo simulación...")
+        
+        # Actualizar estado
+        self.simulation_running = False
+        self.simulation_paused = False
+        
+        # Actualizar vista
+        self.view.set_simulation_state(False, False)
+        
+    def toggle_pause(self):
+        """Alterna entre pausa y reanudación."""
+        if not self.simulation_running:
+            return
+            
+        self.simulation_paused = not self.simulation_paused
+        self.ecosystem.set_paused(self.simulation_paused)
+        
+        # Actualizar vista
+        self.view.set_simulation_state(True, self.simulation_paused)
+        
+        print(f"{'⏸️ ' if self.simulation_paused else '▶️ '} Simulación {'pausada' if self.simulation_paused else 'reanudada'}")
+        
+    def update(self, delta_time: float):
+        """Actualiza la lógica del juego."""
+        # Solo actualizar si la simulación está corriendo y no está pausada
+        if self.simulation_running and not self.simulation_paused:
+            # Actualizar progreso del turno para la UI
+            current_time = pygame.time.get_ticks()
+            time_until_turn = max(0, self.next_turn_time - current_time)
+            progress = 1.0 - (time_until_turn / cfg.TURN_DURATION_MS)
+            self.view.set_turn_progress(progress)
+            
+            # Ejecutar turno de IA cuando sea el momento
+            if current_time >= self.next_turn_time:
+                self.execute_turn()
+                self.next_turn_time = current_time + cfg.TURN_DURATION_MS
+                
+        # Actualizar ecosistema (movimiento continuo)
+        self.ecosystem.update(delta_time)
+        
+        # Procesar eventos del ecosistema para efectos visuales
+        self.view.process_ecosystem_events(self.ecosystem.events)
+        
+        # Actualizar partículas
+        self.view.update_particles()
+        
+    def execute_turn(self):
+        """Ejecuta un turno completo de IA."""
+        # El ecosistema ya maneja la IA en su update
+        # Este método marca el momento discreto del turno
+        pass
+        
+    def run(self):
+        """Bucle principal del juego."""
+        if not self.initialize():
+            return
+            
+        self.running = True
+        print("🚀 Iniciando bucle principal...")
+        
+        try:
+            while self.running:
+                # Calcular delta time
+                current_time = pygame.time.get_ticks()
+                delta_time = (current_time - self.last_time) / 1000.0  # En segundos
+                self.last_time = current_time
+                
+                # Procesar eventos
+                if not self.handle_events():
+                    break
+                    
+                # Actualizar lógica
+                self.update(delta_time)
+                
+                # Renderizar
+                self.view.render(self.ecosystem)
+                
+        except KeyboardInterrupt:
+            print("\n⏹️  Juego interrumpido por el usuario")
+        except Exception as e:
+            print(f"\n❌ Error en el bucle principal: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.shutdown()
+            
+    def shutdown(self):
+        """Cierra todos los sistemas."""
+        print("\n🔴 Apagando juego...")
+        self.view.cleanup()
+        print("✓ Juego cerrado correctamente")
 
 
 def main():
-    """Configura Pygame, crea la vista y orquesta la simulacion cuadro a cuadro."""
-    
-    # Sección 1: Inicialización. Creamos las dos instancias principales.
-    
-    # Creamos el Modelo. Este objeto contiene el ESTADO de la simulación.
-    ecosistema = Ecosistema()
-
-    # Se parte de una configuracion inicial estandar de plantas y animales.
-    # Dejamos que el propio modelo se configure con un estado por defecto.
-    ecosistema.poblar_inicial()
-
-    # Creamos la Vista. Este objeto sabe cómo DIBUJAR el estado.
-    vista = Vista(WIDTH, HEIGHT)
-    
-    # La Vista maneja periféricos como el audio, desacoplando esa lógica del 'main'.
-    # Se arranca musica ambiental para dar sensacion de continuidad.
-    vista.iniciar_musica_fondo()
-
-    # El 'clock' es el metrónomo de Pygame. Nos garantizará los FPS.
-    clock = pygame.time.Clock()
-    
-    # Punto clave de la arquitectura: separamos el tiempo de LÓGICA del tiempo de RENDER.
-    # Los turnos de IA se disparan cada TURNO_DURACION_MS milisegundos.
-    # Usaremos 'proximo_turno_ia' como un despertador para el 'cerebro' del ecosistema.
-    proximo_turno_ia = pygame.time.get_ticks() + TURNO_DURACION_MS
-
-    # Sección 2: Gestión de Estado.
-    # Necesitamos una pequeña máquina de estados para controlar la aplicación.
-    running = True        # Control del bucle principal (la ventana).
-    sim_running = False   # Control de la simulación (activa vs. menú).
-    sim_paused = False    # Control de la pausa.
-
-    # Este es el 'Game Loop'. Todo lo que sigue se ejecuta 60 veces por segundo.
-    while running:
-        # --------------------------------------------
-        # 1) Bucle de eventos del sistema y la UI.
-        # Lo primero: 'escuchar' al usuario.
-        # --------------------------------------------
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                # El usuario cerro la ventana: salir del loop principal.
-                running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                # Aquí delegamos el clic a la Vista. La Vista nos dirá *qué* se pulsó.
-                # Usamos 'getattr' por flexibilidad (permite 'handle_click' o 'hit_button').
-                accion = getattr(vista, "handle_click", vista.hit_button)(event.pos)
-                
-                # Y ahora, el Controlador (aquí) decide *qué hacer* con esa acción.
-                if accion == "start":
-                    # Al pulsar Start se permite reconfigurar el ecosistema.
-                    # Le pedimos a la Vista la configuración de la UI.
-                    cfg = getattr(vista, "get_config_counts", lambda: None)()
-                    
-                    # Resetear la simulación es simple: creamos un *nuevo* modelo.
-                    ecosistema = Ecosistema()
-                    if cfg:
-                        # Se puebla con los valores provistos por la UI lateral.
-                        ecosistema.poblar_custom(
-                            n_plantas=cfg["plantas"],
-                            n_peces=cfg["peces"],
-                            n_truchas=cfg["truchas"],
-                            n_tiburones=cfg["tiburones"],
-                        )
-                    else:
-                        # Fallback: usa la configuracion interna por defecto.
-                        ecosistema.poblar_inicial()
-                    
-                    # Activamos las banderas de estado y reseteamos el 'despertador' de la IA.
-                    sim_running = True
-                    sim_paused = False
-                    proximo_turno_ia = pygame.time.get_ticks() + TURNO_DURACION_MS
-                    vista.reproducir_sonido("start")
-                
-                elif accion == "pause" and sim_running:
-                    # Pausar es solo un 'toggle' de bandera. No afecta al modelo.
-                    sim_paused = not sim_paused
-                    vista.reproducir_sonido("pause" if sim_paused else "resume")
-                
-                elif accion == "stop" and sim_running:
-                    # Stop nos devuelve al 'menú'. Destruimos el modelo...
-                    ecosistema = Ecosistema()
-                    # ...y reseteamos las banderas de estado.
-                    sim_running = False
-                    sim_paused = False
-                    vista.reproducir_sonido("stop")
-
-        # Informamos a la Vista del estado actual (para que dibuje 'PAUSA', por ej.)
-        vista.set_estado_simulacion(sim_running, sim_paused)
-
-        # --------------------------------------------
-        # 2) Turno de IA (logica discreta).
-        # Esta es la sección más importante de la arquitectura.
-        # --------------------------------------------
-        ahora = pygame.time.get_ticks()
-        # El 'cerebro' SÓLO se ejecuta si la simulación está activa y si ha llegado la hora.
-        if sim_running and not sim_paused and (ahora >= proximo_turno_ia):
-            # Le decimos al Modelo: 'Ejecuta tus reglas' (comer, huir, reproducirse).
-            ecosistema.simular_turno_ia()
-            # Y programamos el siguiente turno.
-            proximo_turno_ia = ahora + TURNO_DURACION_MS
-
-        # --------------------------------------------
-        # 3) Movimiento continuo (interpolado frame a frame).
-        # Si la IA decide el movimiento en el Turno 2 (cada segundo), ¿por qué se ve fluido?
-        # Por esto: La IA decide el *destino*. Esta función mueve el sprite *un poco*
-        # hacia ese destino en CADA frame. Es una interpolación.
-        # --------------------------------------------
-        if sim_running and not sim_paused:
-            ecosistema.actualizar_movimiento_frame()
-
-        # --------------------------------------------
-        # 4) Calculo de progreso del siguiente turno.
-        # Esta sección es puramente 'pegamento' para la UI.
-        # --------------------------------------------
-        if sim_running and not sim_paused:
-            restante = max(0, proximo_turno_ia - ahora)
-            # Calculamos un valor de 0 a 1 para la barra de progreso.
-            prog = 1.0 - min(1.0, restante / float(TURNO_DURACION_MS))
-        else:
-            prog = 0.0
-        # Y enviamos esa estadística a la Vista.
-        vista.update_stats(prog)
-
-        # --------------------------------------------
-        # 5) Render final de escena y panel lateral.
-        # Al final del bucle, tras actualizar la lógica, le decimos a la Vista: 'Dibuja'.
-        # --------------------------------------------
-        # Le pasamos el Modelo completo. La Vista sabe cómo leerlo y dibujarlo.
-        vista.dibujar_ecosistema(ecosistema)
-
-        # Aquí el 'clock' detiene la ejecución el tiempo necesario para
-        # mantener nuestros 60 FPS constantes.
-        clock.tick(FPS)
-
-    # Si salimos del 'while running', limpiamos los recursos (ej. música).
-    vista.cerrar()
+    """Punto de entrada del programa."""
+    game = GameController()
+    game.run()
+    return 0
 
 
-# Y el punto de entrada estándar. Aquí es donde todo comienza.
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
