@@ -10,7 +10,7 @@ class SaveManager:
     """
     Gestor de archivos de guardado.
 
-    - Cada partida es un archivo JSON en la carpeta `saves/`.
+    - Cada partida es un archivo JSON en `saves/`.
     - Formato:
         {
           "version": 1,
@@ -42,11 +42,7 @@ class SaveManager:
     # ------------------- API principal -------------------
 
     def save(self, save_name: str, meta: Dict[str, Any], state: Dict[str, Any]) -> str:
-        """
-        Crea un nuevo archivo de guardado.
-
-        Retorna: save_id (string único).
-        """
+        """Crea un nuevo archivo de guardado. Retorna save_id."""
         save_id = self._make_save_id(save_name)
         payload = {
             "version": 1,
@@ -64,9 +60,7 @@ class SaveManager:
         return save_id
 
     def list_saves(self) -> List[Dict[str, Any]]:
-        """
-        Lista todos los guardados disponibles con sus metadatos.
-        """
+        """Lista guardados con metadatos (ordenados por fecha desc)."""
         items: List[Dict[str, Any]] = []
         for filename in os.listdir(self.save_dir):
             if not filename.endswith(".json"):
@@ -75,8 +69,8 @@ class SaveManager:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                meta = data.get("meta", {})
 
+                meta = data.get("meta", {})
                 save_id = meta.get("save_id") or filename[:-5]
                 items.append(
                     {
@@ -93,30 +87,21 @@ class SaveManager:
             except Exception:
                 continue
 
-        # Ordenar por fecha descendente
-        def sort_key(x: Dict[str, Any]) -> str:
-            return x.get("saved_at", "")
-
-        items.sort(key=sort_key, reverse=True)
+        items.sort(key=lambda x: x.get("saved_at", ""), reverse=True)
         return items
 
     def load(self, save_id: str) -> Dict[str, Any]:
-        """
-        Carga el contenido completo de un guardado (meta + state).
-        """
+        """Carga el contenido completo (meta + state)."""
         path = self._path_for_id(save_id)
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    # ------------------- extras para la UI -------------------
-
     def rename_save(self, save_id: str, new_name: str) -> str:
         """
         Renombra una partida:
-        - Cambia el nombre interno (meta.save_name)
-        - Cambia el save_id y el nombre del archivo.
-
-        Retorna: nuevo save_id.
+        - Cambia meta.save_name
+        - Cambia save_id + nombre del archivo.
+        Retorna nuevo save_id.
         """
         old_path = self._path_for_id(save_id)
         if not os.path.exists(old_path):
@@ -128,7 +113,6 @@ class SaveManager:
         meta = data.get("meta", {})
         meta["save_name"] = new_name
 
-        # Nuevo ID y nuevo nombre de archivo
         new_id = self._make_save_id(new_name)
         meta["save_id"] = new_id
         data["meta"] = meta
@@ -137,16 +121,44 @@ class SaveManager:
         with open(new_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-        # Borrar el archivo antiguo
         if os.path.exists(old_path) and old_path != new_path:
             os.remove(old_path)
 
         return new_id
 
     def delete_save(self, save_id: str) -> None:
-        """
-        Elimina definitivamente una partida (archivo .json).
-        """
+        """Elimina definitivamente una partida (archivo .json)."""
         path = self._path_for_id(save_id)
         if os.path.exists(path):
             os.remove(path)
+
+    # ------------------- NUEVO: sobrescribir guardado actual -------------------
+
+    def overwrite(self, save_id: str, meta_updates: Dict[str, Any], state: Dict[str, Any]) -> None:
+        """
+        Sobrescribe el MISMO archivo (misma partida / mismo save_id).
+        No cambia el formato del guardado: solo re-escribe el JSON existente.
+        """
+        path = self._path_for_id(save_id)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"No existe guardado con id {save_id}")
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        version = data.get("version", 1)
+        meta = data.get("meta", {})
+        # Mantener save_id y save_name si existen
+        meta["save_id"] = save_id
+        meta["save_name"] = meta.get("save_name", meta_updates.get("save_name", save_id))
+        meta["saved_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+
+        # Aplicar updates (cycle, summary, counts, active_config, etc.)
+        for k, v in meta_updates.items():
+            if k not in ("save_id", "saved_at"):
+                meta[k] = v
+
+        payload = {"version": version, "meta": meta, "state": state}
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
