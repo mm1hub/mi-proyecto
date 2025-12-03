@@ -9,7 +9,7 @@ from pygame import Color
 # DIMENSIONES Y TIEMPO
 # ============================================================================
 SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 900
+SCREEN_HEIGHT = 720
 FPS = 60
 PANEL_WIDTH = 280
 GAME_AREA_WIDTH = SCREEN_WIDTH - PANEL_WIDTH
@@ -30,17 +30,17 @@ SEASONS_ORDER = ("Primavera", "Verano", "Otoño", "Invierno")
 # POBLACIÓN POR DEFECTO Y LÍMITES
 # ============================================================================
 DEFAULT_POPULATION = {
-    "plantas": 25,
-    "peces": 15,
-    "truchas": 5,
-    "tiburones": 2,
+    "plantas": 20,
+    "peces": 12,
+    "truchas": 8,
+    "tiburones": 3,
 }
 
 POPULATION_LIMITS = {
     "plantas": {"min": 0, "max": 100},
-    "peces": {"min": 0, "max": 50},
-    "truchas": {"min": 0, "max": 30},
-    "tiburones": {"min": 0, "max": 15},
+    "peces": {"min": 0, "max": 100},
+    "truchas": {"min": 0, "max": 100},
+    "tiburones": {"min": 0, "max": 100},
 }
 
 # ============================================================================
@@ -131,3 +131,22 @@ SEASONS_CONFIG = {
         },
     },
 }
+
+# ============================================================================
+# COMPORTAMIENTO DE ESPECIES
+# ============================================================================
+
+# Cardúmenes de peces (boids simplificado)
+FISH_SCHOOL_RADIUS = 100          # Radio para considerar vecinos de cardumen
+FISH_SCHOOL_MIN_NEIGHBORS = 2     # Mínimo de vecinos para comportarse en cardumen
+FISH_SEPARATION_DISTANCE = 30     # Distancia mínima antes de separarse
+
+# Truchas cazando en grupo
+TROUT_PACK_RADIUS = 300           # Radio para buscar compañeras de caza
+TROUT_MAX_PACK_SIZE = 2           # Tamaño máximo del grupo de ataque (parametrizable)
+
+# Tiburones
+SHARK_HUNGER_THRESHOLD = 0.55     # Cuando pasan esta proporción se vuelven más agresivos
+SHARK_HUNT_RADIUS_RELAXED = 260   # Radio de caza normal
+SHARK_HUNT_RADIUS_HUNGRY = 400    # Radio de caza cuando están muy hambrientos
+SHARK_TARGET_PERSISTENCE = 480    # Distancia máxima para seguir persiguiendo a la misma trucha

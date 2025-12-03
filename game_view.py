@@ -468,10 +468,10 @@ class GameView:
         
         # Población
         populations = [
-            ("🌿 Algas", stats['plants'], cfg.GREEN, 50),
-            ("🐟 Peces", stats['fish'], cfg.BLUE, 30),
-            ("🐠 Truchas", stats['trout'], cfg.BROWN, 15),
-            ("🦈 Tiburones", stats['sharks'], cfg.GRAY, 10)
+            ("Algas", stats['plants'], cfg.GREEN, 50),
+            ("Peces", stats['fish'], cfg.BLUE, 30),
+            ("Truchas", stats['trout'], cfg.BROWN, 15),
+            ("Tiburones", stats['sharks'], cfg.GRAY, 10)
         ]
         
         for label, count, color, max_count in populations:
