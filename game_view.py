@@ -1,15 +1,14 @@
 """
 Sistema de visualización del juego.
-Maneja la ventana, renderizado y efectos visuales.
+Interfaz Gráfica Minimalista y Escalable.
+CORREGIDO: draw_particles restaurado.
 """
 
 import os
 import pygame
 from typing import List, Dict, Tuple, Optional, Any
-
 import config as cfg
 from game_logic import Ecosystem, Plant, Fish, Trout, Shark
-
 
 class AssetLoader:
     def __init__(self):
@@ -18,53 +17,42 @@ class AssetLoader:
         self.fonts: Dict[str, pygame.font.Font] = {}
 
     def load_image(self, filename: str, size: Tuple[int, int] = None) -> Optional[pygame.Surface]:
-        if filename in self.images:
-            return self.images[filename]
+        if filename in self.images: return self.images[filename]
         path = os.path.join("assets", filename)
-        if not os.path.exists(path):
-            print(f"⚠️  Imagen no encontrada: {path}")
-            return None
+        if not os.path.exists(path): return None
         try:
             img = pygame.image.load(path).convert_alpha()
-            if size:
-                img = pygame.transform.scale(img, size)
+            if size: img = pygame.transform.scale(img, size)
             self.images[filename] = img
             return img
-        except Exception as e:
-            print(f"✗ Error cargando imagen {filename}: {e}")
-            return None
+        except Exception: return None
 
     def load_sound(self, filename: str) -> Optional[pygame.mixer.Sound]:
-        if filename in self.sounds:
-            return self.sounds[filename]
+        if filename in self.sounds: return self.sounds[filename]
         path = os.path.join("assets", filename)
-        if not os.path.exists(path):
-            print(f"⚠️  Sonido no encontrado: {path}")
-            return None
+        if not os.path.exists(path): return None
         try:
             s = pygame.mixer.Sound(path)
             self.sounds[filename] = s
             return s
-        except Exception as e:
-            print(f"✗ Error cargando sonido {filename}: {e}")
-            return None
+        except Exception: return None
 
     def get_font(self, size: int, bold: bool = False) -> pygame.font.Font:
         key = f"{size}_{bold}"
         if key not in self.fonts:
+            # Preferencia por fuentes modernas sans-serif si existen en el sistema
+            fonts = ["segoeui", "verdana", "arial", "sans"]
+            font_obj = None
             try:
-                self.fonts[key] = pygame.font.SysFont("Arial", size, bold=bold)
-            except Exception:
-                self.fonts[key] = pygame.font.Font(None, size)
+                font_obj = pygame.font.SysFont(fonts[0], size, bold=bold)
+            except:
+                font_obj = pygame.font.Font(None, size)
+            self.fonts[key] = font_obj
         return self.fonts[key]
-
 
 class Particle:
     def __init__(self, x: float, y: float, text: str, color: Tuple[int, int, int]):
-        self.x = x
-        self.y = y
-        self.text = text
-        self.color = color
+        self.x, self.y, self.text, self.color = x, y, text, color
         self.life = 60
         self.speed_y = -1.5
 
@@ -79,101 +67,74 @@ class Particle:
         surf.set_alpha(alpha)
         screen.blit(surf, (int(self.x), int(self.y)))
 
-
 class GameView:
     def __init__(self):
         self.screen: Optional[pygame.Surface] = None
         self.clock: Optional[pygame.time.Clock] = None
         self.assets = AssetLoader()
         self.particles: List[Particle] = []
-        self.effects_font: Optional[pygame.font.Font] = None
-
+        
         self.simulation_running = False
         self.simulation_paused = False
 
+        # Area del panel
         self.panel_rect = pygame.Rect(cfg.SCREEN_WIDTH - cfg.PANEL_WIDTH, 0, cfg.PANEL_WIDTH, cfg.SCREEN_HEIGHT)
 
-        # Botones control
-        self.setup_main_buttons()
-
-        # Botones config (+/-)
+        # Botones Principales (Toolbar Superior)
+        self.toolbar_buttons: Dict[str, pygame.Rect] = {}
+        
+        # Botones Configuración
         self.config_buttons: Dict[str, Dict[str, Any]] = {}
-        self.setup_config_buttons()
-
-        self.config: Dict[str, int] = {
-            "plantas": cfg.DEFAULT_POPULATION["plantas"],
-            "peces": cfg.DEFAULT_POPULATION["peces"],
-            "truchas": cfg.DEFAULT_POPULATION["truchas"],
-            "tiburones": cfg.DEFAULT_POPULATION["tiburones"],
-        }
+        self.config: Dict[str, int] = cfg.DEFAULT_POPULATION.copy()
 
         self.turn_progress = 0.0
 
         # Gestión partidas
         self.save_slots: List[Dict[str, Any]] = []
         self.selected_save_id: Optional[str] = None
-        self.active_save_name: str = ""  # se muestra arriba izq durante simulación
-
+        self.active_save_name: str = ""
         self.pending_delete_id: Optional[str] = None
 
         # Input texto
         self.text_input_active = False
         self.text_input_value: str = ""
-        self.text_input_mode: Optional[str] = None  # "create" / "rename"
+        self.text_input_mode: Optional[str] = None
         self.text_input_target_id: Optional[str] = None
-
         self.save_ui_rects: Dict[str, Any] = {"input": None, "create_btn": None, "load_btn": None, "slots": {}}
 
-    # ----------------- setup botones -----------------
+        # Inicializar rectángulos
+        self.recalculate_layout()
 
-    def setup_main_buttons(self):
-        padding = 20
-        x = self.panel_rect.x + padding
-        y = padding + 40
-        w = cfg.PANEL_WIDTH - (padding * 2)
-        h = 40
+    def recalculate_layout(self):
+        """Define la posición de los elementos fijos (Toolbar)"""
+        p_x = self.panel_rect.x + 15
+        p_w = cfg.PANEL_WIDTH - 30
+        
+        # Toolbar superior (Start | Pause | Stop | Save)
+        btn_w = (p_w - 15) // 3 # 3 botones principales
+        y = 60
+        
+        self.toolbar_buttons["start"] = pygame.Rect(p_x, y, p_w, 40) # Start ocupa todo si no corre
+        
+        # Si corre: [Pause] [Stop] [Save]
+        self.toolbar_buttons["pause"] = pygame.Rect(p_x, y, btn_w, 40)
+        self.toolbar_buttons["stop"] = pygame.Rect(p_x + btn_w + 5, y, btn_w, 40)
+        self.toolbar_buttons["save"] = pygame.Rect(p_x + (btn_w + 5)*2, y, btn_w + 5, 40)
 
-        self.btn_start = pygame.Rect(x, y, w, h)
-        self.btn_pause = pygame.Rect(x, y + h + 10, w, h)
-        self.btn_stop = pygame.Rect(x, y + (h + 10) * 2, w, h)
-        # botón guardado manual (solo visible cuando corre)
-        self.btn_manual_save = pygame.Rect(x, y + (h + 10) * 3, w, 36)
-
-    def setup_config_buttons(self):
-        padding = 20
-        x = self.panel_rect.x + padding
-        y = self.btn_stop.bottom + 220
-
-        items = [
-            ("plantas", "🌿 Algas", y),
-            ("peces", "🐟 Peces", y + 50),
-            ("truchas", "🐠 Truchas", y + 100),
-            ("tiburones", "🦈 Tiburones", y + 150),
-        ]
-
-        for k, label, y_pos in items:
-            minus = pygame.Rect(x, y_pos, 30, 30)
-            plus = pygame.Rect(x + cfg.PANEL_WIDTH - padding - 30, y_pos, 30, 30)
-            value = pygame.Rect(x + 40, y_pos, cfg.PANEL_WIDTH - padding * 2 - 80, 30)
-            self.config_buttons[k] = {"minus": minus, "plus": plus, "value": value, "label": label}
-
-    # ----------------- init assets -----------------
+        # Config buttons se calculan dinámicamente en draw, pero inicializamos dict
+        self.config_buttons = {}
 
     def initialize(self) -> bool:
         try:
             pygame.init()
-            pygame.display.set_caption("Simulador de Ecosistema Acuático")
+            pygame.display.set_caption("Simulador Ecosistema v2.0")
             self.screen = pygame.display.set_mode((cfg.SCREEN_WIDTH, cfg.SCREEN_HEIGHT))
             self.clock = pygame.time.Clock()
-            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-
+            pygame.mixer.init()
             self.load_assets()
-            self.effects_font = self.assets.get_font(18, bold=True)
-
-            print("✓ Vista inicializada correctamente")
             return True
         except Exception as e:
-            print(f"✗ Error inicializando vista: {e}")
+            print(f"Error init: {e}")
             return False
 
     def load_assets(self):
@@ -181,16 +142,13 @@ class GameView:
         self.assets.load_image("trucha.png", (35, 35))
         self.assets.load_image("tiburon.png", (45, 45))
         self.assets.load_image("alga.png", (14, 14))
-
-        self.assets.load_sound("comer_planta.mp3")
-        self.assets.load_sound("comer.mp3")
-        self.assets.load_sound("morir.mp3")
-        self.assets.load_sound("musica_fondo_mar.mp3")
-
-    # ----------------- API desde controlador -----------------
+        # Sonidos opcionales
+        for s in ["comer_planta.mp3", "comer.mp3", "morir.mp3", "musica_fondo_mar.mp3"]:
+            self.assets.load_sound(s)
 
     def set_save_slots(self, slots: List[Dict[str, Any]], selected_id: Optional[str] = None):
         self.save_slots = slots
+        # Validar selección
         if selected_id and any(s["save_id"] == selected_id for s in slots):
             self.selected_save_id = selected_id
         elif self.selected_save_id and not any(s["save_id"] == self.selected_save_id for s in slots):
@@ -200,162 +158,121 @@ class GameView:
     def set_active_save_name(self, name: str):
         self.active_save_name = name or ""
 
-    # ----------------- eventos -----------------
+    # ----------------- EVENTOS ----------------- #
 
     def handle_events(self) -> Optional[Any]:
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return "quit"
+            if event.type == pygame.QUIT: return "quit"
 
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                act = self.handle_click(event.pos)
-                if act:
-                    return act
+            # Input texto
+            if event.type == pygame.KEYDOWN and self.text_input_active:
+                if event.key == pygame.K_RETURN:
+                    txt = self.text_input_value.strip()
+                    mode = self.text_input_mode
+                    tid = self.text_input_target_id
+                    self._reset_input()
+                    
+                    if not txt: return None
+                    if mode == "create": return {"type": "save_create", "name": txt}
+                    if mode == "rename" and tid: return {"type": "save_rename", "save_id": tid, "new_name": txt}
 
-            elif event.type == pygame.KEYDOWN:
-                if self.text_input_active:
-                    if event.key == pygame.K_RETURN:
-                        txt = self.text_input_value.strip()
-                        if not txt:
-                            self.text_input_active = False
-                            self.text_input_mode = None
-                            self.text_input_target_id = None
-                            return None
+                elif event.key == pygame.K_BACKSPACE:
+                    self.text_input_value = self.text_input_value[:-1]
+                elif event.key == pygame.K_ESCAPE:
+                    self._reset_input()
+                else:
+                    if len(self.text_input_value) < 25 and event.unicode.isprintable():
+                        self.text_input_value += event.unicode
+                return None
 
-                        if self.text_input_mode == "create":
-                            self.text_input_active = False
-                            self.text_input_mode = None
-                            return {"type": "save_create", "name": txt}
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE: return "quit"
+                if event.key == pygame.K_SPACE and self.simulation_running: return "toggle_pause"
 
-                        if self.text_input_mode == "rename" and self.text_input_target_id:
-                            save_id = self.text_input_target_id
-                            self.text_input_active = False
-                            self.text_input_mode = None
-                            self.text_input_target_id = None
-                            return {"type": "save_rename", "save_id": save_id, "new_name": txt}
-
-                        return None
-
-                    elif event.key == pygame.K_BACKSPACE:
-                        self.text_input_value = self.text_input_value[:-1]
-                        return None
-
-                    elif event.key == pygame.K_ESCAPE:
-                        self.text_input_active = False
-                        self.text_input_mode = None
-                        self.text_input_target_id = None
-                        return None
-
-                    else:
-                        ch = event.unicode
-                        if ch and ch.isprintable() and len(self.text_input_value) < 30:
-                            self.text_input_value += ch
-                        return None
-
-                if event.key == pygame.K_ESCAPE:
-                    return "quit"
-                elif event.key == pygame.K_SPACE and self.simulation_running:
-                    return "toggle_pause"
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                action = self.handle_click(event.pos)
+                if action: return action
 
         return None
 
+    def _reset_input(self):
+        self.text_input_active = False
+        self.text_input_mode = None
+        self.text_input_target_id = None
+        self.pending_delete_id = None
+
     def handle_click(self, pos: Tuple[int, int]) -> Optional[Any]:
         if not self.panel_rect.collidepoint(pos):
-            self.pending_delete_id = None
+            self._reset_input()
             return None
 
-        # guardado manual
-        if self.simulation_running and self.selected_save_id and self.btn_manual_save.collidepoint(pos):
-            return {"type": "save_manual", "save_id": self.selected_save_id}
+        # 1. Toolbar Superior
+        if not self.simulation_running:
+            if self.toolbar_buttons["start"].collidepoint(pos):
+                return "start" if self.selected_save_id else None
+        else:
+            if self.toolbar_buttons["pause"].collidepoint(pos): return "toggle_pause"
+            if self.toolbar_buttons["stop"].collidepoint(pos): return "stop"
+            if self.toolbar_buttons["save"].collidepoint(pos):
+                if self.selected_save_id: return {"type": "save_manual", "save_id": self.selected_save_id}
 
-        # start (bloqueado si no hay partida)
-        if not self.simulation_running and self.btn_start.collidepoint(pos):
-            if self.selected_save_id is not None:
-                return "start"
-            return None
+        # 2. Configuración (Solo si no corre)
+        if not self.simulation_running:
+            for key, btns in self.config_buttons.items():
+                if btns["minus"].collidepoint(pos):
+                    self.config[key] = max(0, self.config[key] - 1)
+                    return "config_changed"
+                if btns["plus"].collidepoint(pos):
+                    self.config[key] = min(cfg.POPULATION_LIMITS[key]["max"], self.config[key] + 1)
+                    return "config_changed"
 
-        if self.simulation_running and self.btn_pause.collidepoint(pos):
-            return "toggle_pause"
-
-        if self.simulation_running and self.btn_stop.collidepoint(pos):
-            return "stop"
-
-        # input create
-        input_rect = self.save_ui_rects.get("input")
-        if input_rect and input_rect.collidepoint(pos):
-            if self.text_input_mode != "rename":
-                self.text_input_mode = "create"
-                if not self.text_input_active:
-                    self.text_input_value = ""
+        # 3. Gestión Partidas (Input/Crear/Cargar/Slots)
+        # Input Create
+        if self.save_ui_rects.get("input") and self.save_ui_rects["input"].collidepoint(pos):
+            self.text_input_mode = "create"
             self.text_input_active = True
+            self.text_input_value = ""
             return None
-
-        create_btn = self.save_ui_rects.get("create_btn")
-        if create_btn and create_btn.collidepoint(pos):
+            
+        # Btn Crear
+        if self.save_ui_rects.get("create_btn") and self.save_ui_rects["create_btn"].collidepoint(pos):
             txt = self.text_input_value.strip()
-            if txt:
-                self.text_input_active = False
-                self.text_input_mode = None
-                self.text_input_target_id = None
-                return {"type": "save_create", "name": txt}
+            self._reset_input()
+            if txt: return {"type": "save_create", "name": txt}
             return None
 
-        load_btn = self.save_ui_rects.get("load_btn")
-        if load_btn and load_btn.collidepoint(pos):
-            if self.selected_save_id:
-                return {"type": "save_load", "save_id": self.selected_save_id}
-            return None
+        # Btn Cargar
+        if self.save_ui_rects.get("load_btn") and self.save_ui_rects["load_btn"].collidepoint(pos):
+            if self.selected_save_id: return {"type": "save_load", "save_id": self.selected_save_id}
 
-        # filas partidas (FIX: primero rename/delete)
-        slots_rects: Dict[str, Dict[str, pygame.Rect]] = self.save_ui_rects.get("slots", {})
-
+        # Slots individuales
+        slots_rects = self.save_ui_rects.get("slots", {})
         for save_id, rects in slots_rects.items():
-            row_rect = rects.get("row")
-            rename_rect = rects.get("rename")
-            delete_rect = rects.get("delete")
-
-            if rename_rect and rename_rect.collidepoint(pos):
+            if rects["rename"].collidepoint(pos):
                 slot = next((s for s in self.save_slots if s["save_id"] == save_id), None)
                 if slot:
                     self.text_input_mode = "rename"
                     self.text_input_target_id = save_id
                     self.text_input_value = slot["save_name"]
                     self.text_input_active = True
-                    self.pending_delete_id = None
                 return None
-
-            if delete_rect and delete_rect.collidepoint(pos):
+            
+            if rects["delete"].collidepoint(pos):
                 if self.pending_delete_id == save_id:
-                    self.pending_delete_id = None
-                    self.text_input_active = False
-                    self.text_input_mode = None
-                    self.text_input_target_id = None
+                    self._reset_input()
                     return {"type": "save_delete", "save_id": save_id}
                 else:
                     self.pending_delete_id = save_id
                     return None
 
-            if row_rect and row_rect.collidepoint(pos):
+            if rects["row"].collidepoint(pos):
                 self.selected_save_id = save_id
-                self.pending_delete_id = None
-                self.text_input_active = False
-                self.text_input_mode = None
-                self.text_input_target_id = None
+                self._reset_input()
                 return {"type": "save_select", "save_id": save_id}
-
-        # config (+/-) solo si NO corre
-        if not self.simulation_running:
-            for key, buttons in self.config_buttons.items():
-                if buttons["minus"].collidepoint(pos):
-                    self.config[key] = max(0, self.config[key] - 1)
-                    return "config_changed"
-                if buttons["plus"].collidepoint(pos):
-                    self.config[key] = min(cfg.POPULATION_LIMITS[key]["max"], self.config[key] + 1)
-                    return "config_changed"
 
         return None
 
-    # ----------------- partículas y eventos -----------------
+    # ----------------- LOGICA VISUAL ----------------- #
 
     def update_particles(self):
         self.particles = [p for p in self.particles if not p.update()]
@@ -364,334 +281,380 @@ class GameView:
         self.particles.append(Particle(x, y, text, color))
 
     def process_ecosystem_events(self, events: List[Dict]):
+        # Se mantiene igual para procesar eventos
         for event in events:
             if event["type"] == "eat":
-                energy = int(event.get("energy", 0))
                 eater = event.get("eater", "")
                 snd = self.assets.load_sound("comer_planta.mp3") if eater == "pez" else self.assets.load_sound("comer.mp3")
-                self.add_particle(event["position"][0], event["position"][1], f"+{energy}", cfg.EAT_COLOR)
-                if snd:
-                    snd.play()
-
+                self.add_particle(event["position"][0], event["position"][1], "+E", cfg.EAT_COLOR)
+                if snd: snd.play()
             elif event["type"] == "birth":
-                species = event.get("species", "")
-                emoji = "🐟" if species == "pez" else "🦈" if species == "tiburon" else "🐠"
-                self.add_particle(event["position"][0], event["position"][1], f"{emoji}+1", cfg.BIRTH_COLOR)
-
+                self.add_particle(event["position"][0], event["position"][1], "★", cfg.BIRTH_COLOR)
             elif event["type"] == "death":
-                self.add_particle(event["position"][0], event["position"][1], "💀", cfg.DEATH_COLOR)
-                snd = self.assets.load_sound("morir.mp3")
-                if snd:
-                    snd.play()
+                self.add_particle(event["position"][0], event["position"][1], "†", cfg.DEATH_COLOR)
+                if self.assets.load_sound("morir.mp3"): self.assets.load_sound("morir.mp3").play()
 
-    # ----------------- dibujado -----------------
+    # ----------------- RENDERIZADO ----------------- #
 
-    def draw_background(self):
-        for y in range(cfg.SCREEN_HEIGHT):
-            ratio = y / cfg.SCREEN_HEIGHT
-            r = int(cfg.WATER_LIGHT.r * (1 - ratio) + cfg.WATER_DARK.r * ratio)
-            g = int(cfg.WATER_LIGHT.g * (1 - ratio) + cfg.WATER_DARK.g * ratio)
-            b = int(cfg.WATER_LIGHT.b * (1 - ratio) + cfg.WATER_DARK.b * ratio)
-            pygame.draw.line(self.screen, (r, g, b), (0, y), (cfg.GAME_AREA_WIDTH, y))
+    def render(self, ecosystem: Ecosystem):
+        self.screen.fill(cfg.UI_BLACK) # Fondo seguro
+        
+        # 1. Dibujar Juego
+        self.draw_game_area(ecosystem)
+        self.draw_particles()
+        
+        # 2. Dibujar Panel UI
+        self.draw_panel(ecosystem)
+        
+        # 3. Overlays
+        if self.simulation_paused: self.draw_pause_overlay()
+        
+        pygame.display.flip()
+        self.clock.tick(cfg.FPS)
 
-    def draw_entity(self, entity, image_name: str, fallback_color: pygame.Color):
-        if entity.x > cfg.GAME_AREA_WIDTH - entity.width:
-            return
-        img = self.assets.load_image(image_name)
+    def draw_particles(self):
+        # Usamos una fuente para efectos, por ejemplo tamaño 14 bold
+        font = self.assets.get_font(14, True)
+        for p in self.particles:
+            p.draw(self.screen, font)
+
+    def draw_game_area(self, ecosystem: Ecosystem):
+        # Fondo degradado simple o solido
+        rect = pygame.Rect(0, 0, cfg.GAME_AREA_WIDTH, cfg.SCREEN_HEIGHT)
+        pygame.draw.rect(self.screen, cfg.WATER_DARK, rect)
+        
+        # Grid/Lineas sutiles (Opcional, hace que se vea pro)
+        # for y in range(0, cfg.SCREEN_HEIGHT, 40):
+        #     pygame.draw.line(self.screen, (0, 80, 120), (0, y), (cfg.GAME_AREA_WIDTH, y))
+
+        # Entidades
+        all_entities = ecosystem.plants + ecosystem.fish + ecosystem.trout + ecosystem.sharks
+        all_entities.sort(key=lambda e: e.y) # Z-index simple
+
+        for e in all_entities:
+            img_name = "alga.png" if isinstance(e, Plant) else \
+                       "pez.png" if isinstance(e, Fish) else \
+                       "trucha.png" if isinstance(e, Trout) else "tiburon.png"
+            
+            # Color fallback
+            c = cfg.COLOR_PLANT if isinstance(e, Plant) else \
+                cfg.COLOR_FISH if isinstance(e, Fish) else \
+                cfg.COLOR_TROUT if isinstance(e, Trout) else cfg.COLOR_SHARK
+
+            self.draw_entity(e, img_name, c)
+
+        # Nombre partida (Flotante top-left)
+        if self.active_save_name:
+            f = self.assets.get_font(16, True)
+            t = f.render(self.active_save_name, True, (255,255,255))
+            bg = pygame.Surface((t.get_width()+10, t.get_height()+6))
+            bg.fill((0,0,0))
+            bg.set_alpha(100)
+            self.screen.blit(bg, (10, 10))
+            self.screen.blit(t, (15, 13))
+
+    def draw_entity(self, entity, img_name, color):
+        if entity.x > cfg.GAME_AREA_WIDTH: return
+        img = self.assets.load_image(img_name)
         if img:
             if hasattr(entity, "direction") and entity.direction == -1:
                 img = pygame.transform.flip(img, True, False)
             self.screen.blit(img, (int(entity.x), int(entity.y)))
         else:
-            center = (int(entity.x + entity.width // 2), int(entity.y + entity.height // 2))
-            pygame.draw.circle(self.screen, fallback_color, center, entity.width // 2)
-
-    def draw_ecosystem(self, ecosystem: Ecosystem):
-        self.draw_background()
-        all_entities: List[Any] = []
-        all_entities.extend(ecosystem.plants)
-        all_entities.extend(ecosystem.fish)
-        all_entities.extend(ecosystem.trout)
-        all_entities.extend(ecosystem.sharks)
-        all_entities.sort(key=lambda e: e.y)
-
-        for e in all_entities:
-            if isinstance(e, Plant):
-                self.draw_entity(e, "alga.png", cfg.GREEN)
-            elif isinstance(e, Fish):
-                self.draw_entity(e, "pez.png", cfg.BLUE)
-            elif isinstance(e, Trout):
-                self.draw_entity(e, "trucha.png", cfg.BROWN)
-            elif isinstance(e, Shark):
-                self.draw_entity(e, "tiburon.png", cfg.GRAY)
-
-    def draw_active_save_label(self):
-        if not self.simulation_running or not self.active_save_name:
-            return
-        font = self.assets.get_font(18, bold=True)
-        txt = f"Partida: {self.active_save_name}"
-        surf = font.render(txt, True, cfg.TEXT_TITLE)
-
-        pad = 8
-        bg = pygame.Surface((surf.get_width() + pad * 2, surf.get_height() + pad * 2), pygame.SRCALPHA)
-        bg.fill((0, 0, 0, 120))
-        self.screen.blit(bg, (10, 10))
-        self.screen.blit(surf, (10 + pad, 10 + pad))
+            pygame.draw.circle(self.screen, color, (int(entity.x + entity.width/2), int(entity.y + entity.height/2)), entity.width//2)
 
     def draw_panel(self, ecosystem: Ecosystem):
-        panel = pygame.Surface((cfg.PANEL_WIDTH, cfg.SCREEN_HEIGHT), pygame.SRCALPHA)
-        panel.fill((*cfg.PANEL_BG[:3], cfg.PANEL_BG.a if hasattr(cfg.PANEL_BG, "a") else 230))
-        self.screen.blit(panel, (self.panel_rect.x, 0))
+        # Fondo Panel
+        pygame.draw.rect(self.screen, cfg.UI_BG, self.panel_rect)
+        pygame.draw.line(self.screen, cfg.UI_BORDER, (self.panel_rect.x, 0), (self.panel_rect.x, cfg.SCREEN_HEIGHT), 2)
 
-        title_font = self.assets.get_font(24, bold=True)
-        normal_font = self.assets.get_font(18)
-        small_font = self.assets.get_font(14)
+        x_start = self.panel_rect.x + 15
+        width = cfg.PANEL_WIDTH - 30
+        curr_y = 20
 
-        self.screen.blit(title_font.render("Panel de Control", True, cfg.TEXT_TITLE), (self.panel_rect.x + 20, 20))
+        # TITULO
+        title = self.assets.get_font(22, True).render("SIMULADOR BENYI", True, cfg.TEXT_ACCENT)
+        self.screen.blit(title, (x_start, curr_y))
+        
+        # Subtítulo (Estado)
+        status = "En ejecución" if self.simulation_running and not self.simulation_paused else \
+                 "Pausado" if self.simulation_paused else "Detenido"
+        st_surf = self.assets.get_font(14).render(status, True, cfg.TEXT_DIM)
+        self.screen.blit(st_surf, (self.panel_rect.right - st_surf.get_width() - 15, curr_y + 5))
+        
+        curr_y += 40
 
-        self.draw_main_buttons()
+        # TOOLBAR (Botones fijos)
+        self.draw_toolbar(curr_y)
+        curr_y += 50
 
-        controls_bottom = self.btn_manual_save.bottom if self.simulation_running else self.btn_stop.bottom
-        start_y = controls_bottom + 14
-
-        next_y = self.draw_save_manager(small_font, normal_font, start_y)
-
+        # CONTENIDO DINAMICO (Depende del estado)
         if self.simulation_running:
-            self.draw_statistics(ecosystem, small_font, normal_font, next_y + 10)
+            # 1. Estadísticas (Card)
+            curr_y = self.draw_section_stats(ecosystem, x_start, curr_y, width)
         else:
-            self.draw_configuration(small_font, normal_font, next_y + 10)
+            # 1. Configuración (Card)
+            curr_y = self.draw_section_config(x_start, curr_y, width)
+            # 2. Guardado (Card)
+            curr_y = self.draw_section_saves(x_start, curr_y, width)
 
-    def draw_main_buttons(self):
+    def draw_toolbar(self, y_pos):
+        font = self.assets.get_font(16, True)
+        
         if not self.simulation_running:
+            # Boton START Grande
+            rect = self.toolbar_buttons["start"]
             enabled = self.selected_save_id is not None
-            self.draw_button(self.btn_start, "Comenzar", cfg.BTN_START, enabled)
+            self.draw_button_modern(rect, "COMENZAR SIMULACIÓN", cfg.BTN_PRIMARY, enabled, font)
+        else:
+            # Botones Pequeños
+            # Pause
+            p_txt = "REANUDAR" if self.simulation_paused else "PAUSAR"
+            self.draw_button_modern(self.toolbar_buttons["pause"], p_txt, cfg.BTN_WARNING, True, self.assets.get_font(12, True))
+            # Stop
+            self.draw_button_modern(self.toolbar_buttons["stop"], "DETENER", cfg.BTN_DANGER, True, self.assets.get_font(12, True))
+            # Save
+            self.draw_button_modern(self.toolbar_buttons["save"], "GUARDAR", cfg.BTN_SUCCESS, True, self.assets.get_font(12, True))
 
-        if self.simulation_running:
-            pause_text = "Pausar" if not self.simulation_paused else "Reanudar"
-            pause_color = cfg.BTN_PAUSE if not self.simulation_paused else cfg.BTN_RESUME
-            self.draw_button(self.btn_pause, pause_text, pause_color, True)
-            self.draw_button(self.btn_stop, "Detener", cfg.BTN_STOP, True)
+    # --- SECCIONES (CARDS) ---
 
-            can_save = self.selected_save_id is not None
-            self.draw_button(self.btn_manual_save, "Guardar (Manual)", cfg.BTN_PLUS, can_save)
+    def draw_card_bg(self, x, y, w, h, title=""):
+        rect = pygame.Rect(x, y, w, h)
+        pygame.draw.rect(self.screen, cfg.UI_CARD_BG, rect, border_radius=8)
+        # pygame.draw.rect(self.screen, cfg.UI_BORDER, rect, 1, border_radius=8)
+        if title:
+            f = self.assets.get_font(14, True)
+            t = f.render(title.upper(), True, cfg.TEXT_SEC)
+            self.screen.blit(t, (x + 10, y + 10))
+        return rect
 
-    def draw_button(self, rect: pygame.Rect, text: str, color: pygame.Color, enabled: bool):
-        btn_color = color
-        hover = rect.collidepoint(pygame.mouse.get_pos())
+    def draw_section_stats(self, ecosystem: Ecosystem, x, y, w) -> int:
+        h = 280
+        self.draw_card_bg(x, y, w, h, "Estadísticas en Tiempo Real")
+        
+        inner_y = y + 40
+        padding = 15
+        
+        stats = ecosystem.get_statistics()
+        
+        # Barras de Población
+        items = [
+            ("Algas", stats["plants"], cfg.POPULATION_LIMITS["plantas"]["max"], cfg.COLOR_PLANT),
+            ("Peces", stats["fish"], cfg.POPULATION_LIMITS["peces"]["max"], cfg.COLOR_FISH),
+            ("Truchas", stats["trout"], cfg.POPULATION_LIMITS["truchas"]["max"], cfg.COLOR_TROUT),
+            ("Tiburones", stats["sharks"], cfg.POPULATION_LIMITS["tiburones"]["max"], cfg.COLOR_SHARK),
+        ]
+        
+        font_lbl = self.assets.get_font(13)
+        font_num = self.assets.get_font(13, True)
 
-        if hover and enabled:
-            btn_color = (min(255, color.r + 30), min(255, color.g + 30), min(255, color.b + 30))
-        if not enabled:
-            btn_color = (color.r // 2, color.g // 2, color.b // 2)
+        for label, val, max_val, color in items:
+            # Label izquierda
+            self.screen.blit(font_lbl.render(label, True, cfg.TEXT_MAIN), (x + padding, inner_y))
+            # Numero derecha
+            num_surf = font_num.render(str(val), True, cfg.TEXT_MAIN)
+            self.screen.blit(num_surf, (x + w - padding - num_surf.get_width(), inner_y))
+            inner_y += 18
+            
+            # Barra
+            bar_w = w - (padding * 2)
+            pygame.draw.rect(self.screen, cfg.BAR_BG, (x+padding, inner_y, bar_w, 6), border_radius=3)
+            pct = val / max(1, max_val)
+            if pct > 0:
+                pygame.draw.rect(self.screen, color, (x+padding, inner_y, int(bar_w * min(1, pct)), 6), border_radius=3)
+            inner_y += 15
 
-        pygame.draw.rect(self.screen, btn_color, rect, border_radius=8)
-        pygame.draw.rect(self.screen, (0, 0, 0), rect, 2, border_radius=8)
+        # Separador
+        pygame.draw.line(self.screen, cfg.UI_BORDER, (x+10, inner_y+5), (x+w-10, inner_y+5))
+        inner_y += 15
 
-        font = self.assets.get_font(18)
-        surf = font.render(text, True, cfg.BTN_TEXT)
-        self.screen.blit(surf, surf.get_rect(center=rect.center))
+        # Tiempo
+        season_color = cfg.SEASONS_CONFIG.get(stats["season"], {}).get("color", cfg.WHITE)
+        self.screen.blit(font_lbl.render(f"Día {stats['day']} - {stats['season']}", True, cfg.TEXT_MAIN), (x + padding, inner_y))
+        inner_y += 20
+        # Barra dia
+        bar_w = w - (padding * 2)
+        pygame.draw.rect(self.screen, cfg.BAR_BG, (x+padding, inner_y, bar_w, 4), border_radius=2)
+        pygame.draw.rect(self.screen, season_color, (x+padding, inner_y, int(bar_w * stats["season_progress"]), 4), border_radius=2)
+        
+        inner_y += 15
+        t_day = stats["time_of_day"].capitalize()
+        self.screen.blit(font_lbl.render(f"Ciclo: {t_day}", True, cfg.TEXT_DIM), (x + padding, inner_y))
 
-    def draw_save_manager(self, small_font, normal_font, start_y: int) -> int:
-        x = self.panel_rect.x + 20
-        y = start_y
+        return y + h + 15
 
-        self.screen.blit(normal_font.render("Gestión de Partidas", True, cfg.TEXT_TITLE), (x, y))
-        y += 30
+    def draw_section_config(self, x, y, w) -> int:
+        h = 190
+        self.draw_card_bg(x, y, w, h, "Población Inicial")
+        inner_y = y + 35
+        padding = 10
+        
+        items = [
+            ("plantas", "Algas", cfg.COLOR_PLANT),
+            ("peces", "Peces", cfg.COLOR_FISH),
+            ("truchas", "Truchas", cfg.COLOR_TROUT),
+            ("tiburones", "Tiburones", cfg.COLOR_SHARK),
+        ]
+        
+        f = self.assets.get_font(14)
+        
+        for key, label, col in items:
+            # Fila
+            row_rect = pygame.Rect(x + padding, inner_y, w - padding*2, 30)
+            
+            # Label con bullet de color
+            pygame.draw.circle(self.screen, col, (row_rect.x + 8, row_rect.centery), 4)
+            self.screen.blit(f.render(label, True, cfg.TEXT_MAIN), (row_rect.x + 20, row_rect.y + 6))
+            
+            # Controles [ - ] [ Val ] [ + ] alineados a la derecha
+            btn_size = 24
+            
+            plus_rect = pygame.Rect(row_rect.right - btn_size, row_rect.y + 3, btn_size, btn_size)
+            val_rect = pygame.Rect(plus_rect.left - 40, row_rect.y, 40, 30)
+            minus_rect = pygame.Rect(val_rect.left - btn_size, row_rect.y + 3, btn_size, btn_size)
+            
+            self.config_buttons[key] = {"minus": minus_rect, "plus": plus_rect}
+            
+            # Draw -
+            self.draw_mini_btn(minus_rect, "-", self.config[key] > 0)
+            # Draw Val
+            val_txt = f.render(str(self.config[key]), True, cfg.TEXT_MAIN)
+            self.screen.blit(val_txt, val_txt.get_rect(center=val_rect.center))
+            # Draw +
+            self.draw_mini_btn(plus_rect, "+", self.config[key] < cfg.POPULATION_LIMITS[key]["max"])
+            
+            inner_y += 38
 
-        input_rect = pygame.Rect(x, y, cfg.PANEL_WIDTH - 130, 28)
-        create_rect = pygame.Rect(input_rect.right + 8, y, 80, 28)
+        return y + h + 15
+
+    def draw_section_saves(self, x, y, w) -> int:
+        # Calcular altura dinamica
+        slots_h = max(100, len(self.save_slots) * 35 + 40)
+        h = 100 + slots_h
+        
+        self.draw_card_bg(x, y, w, h, "Gestor de Partidas")
+        inner_y = y + 40
+        padding = 10
+        
+        # 1. Input + Crear
+        input_w = w - padding*2 - 70
+        input_rect = pygame.Rect(x+padding, inner_y, input_w, 30)
+        create_rect = pygame.Rect(input_rect.right + 5, inner_y, 65, 30)
+        
         self.save_ui_rects["input"] = input_rect
         self.save_ui_rects["create_btn"] = create_rect
-
-        pygame.draw.rect(self.screen, cfg.BAR_BG, input_rect, border_radius=4)
-        pygame.draw.rect(self.screen, cfg.SEPARATOR, input_rect, 1, border_radius=4)
-
-        if self.text_input_active and self.text_input_mode in ("create", "rename"):
-            text = self.text_input_value
-        else:
-            text = ""
-        placeholder = "Nombre partida..." if not text else text
-        color = cfg.TEXT_NORMAL if text else cfg.SEPARATOR
-        self.screen.blit(small_font.render(placeholder, True, color), (input_rect.x + 6, input_rect.y + 6))
-
-        self.draw_button(create_rect, "Crear", cfg.BTN_PLUS, True)
-        y += 40
-
-        self.screen.blit(small_font.render("Partidas guardadas:", True, cfg.TEXT_NORMAL), (x, y))
-        y += 20
-
+        
+        # Draw Input
+        pygame.draw.rect(self.screen, cfg.UI_BG, input_rect, border_radius=4)
+        pygame.draw.rect(self.screen, cfg.UI_BORDER, input_rect, 1, border_radius=4)
+        
+        txt_show = self.text_input_value if (self.text_input_active and self.text_input_mode!="rename") else ""
+        ph = "Nueva partida..." if not txt_show else txt_show
+        col = cfg.TEXT_MAIN if txt_show else cfg.TEXT_DIM
+        
+        f = self.assets.get_font(13)
+        self.screen.blit(f.render(ph, True, col), (input_rect.x + 8, input_rect.y + 7))
+        
+        # Draw Create
+        self.draw_button_modern(create_rect, "Crear", cfg.BTN_PRIMARY, True, self.assets.get_font(12, True))
+        
+        inner_y += 45
+        
+        # 2. Lista
         self.save_ui_rects["slots"] = {}
-        row_h = 28
-        max_rows = 5
-
-        for slot in self.save_slots[:max_rows]:
-            save_id = slot["save_id"]
-            name = slot["save_name"]
-
-            row_rect = pygame.Rect(x, y, cfg.PANEL_WIDTH - 40, row_h)
-            rename_rect = pygame.Rect(row_rect.right - 56, y + 2, 24, row_h - 4)
-            delete_rect = pygame.Rect(row_rect.right - 28, y + 2, 24, row_h - 4)
-
-            bg = cfg.BAR_BG if self.selected_save_id == save_id else (30, 34, 38)
-            pygame.draw.rect(self.screen, bg, row_rect, border_radius=4)
-
-            display = name if len(name) <= 18 else name[:16] + "…"
-            self.screen.blit(small_font.render(display, True, cfg.TEXT_TITLE), (row_rect.x + 6, row_rect.y + 6))
-
-            pygame.draw.rect(self.screen, cfg.BTN_PAUSE, rename_rect, border_radius=6)
-            r = small_font.render("R", True, cfg.BTN_TEXT)
-            self.screen.blit(r, r.get_rect(center=rename_rect.center))
-
-            pygame.draw.rect(self.screen, cfg.BTN_STOP, delete_rect, border_radius=6)
-            x_txt = small_font.render("X", True, cfg.BTN_TEXT)
-            self.screen.blit(x_txt, x_txt.get_rect(center=delete_rect.center))
-
-            self.save_ui_rects["slots"][save_id] = {"row": row_rect, "rename": rename_rect, "delete": delete_rect}
-            y += row_h + 4
-
-        if self.pending_delete_id:
-            self.screen.blit(small_font.render("Click de nuevo en X para eliminar.", True, cfg.BTN_STOP), (x, y))
-            y += 20
-
-        load_rect = pygame.Rect(x, y + 4, cfg.PANEL_WIDTH - 40, 30)
+        row_h = 30
+        
+        f_slot = self.assets.get_font(13)
+        
+        for slot in self.save_slots:
+            sid = slot["save_id"]
+            sname = slot["save_name"]
+            
+            row_rect = pygame.Rect(x+padding, inner_y, w - padding*2, row_h)
+            
+            is_sel = self.selected_save_id == sid
+            bg_col = cfg.UI_BG if not is_sel else cfg.BTN_PRIMARY
+            txt_col = cfg.TEXT_DIM if not is_sel else cfg.WHITE
+            
+            pygame.draw.rect(self.screen, bg_col, row_rect, border_radius=4)
+            
+            # Nombre
+            trunc_name = (sname[:18] + '..') if len(sname) > 18 else sname
+            self.screen.blit(f_slot.render(trunc_name, True, txt_col), (row_rect.x + 8, row_rect.y + 7))
+            
+            # Botones Accion (Rename / Delete)
+            del_rect = pygame.Rect(row_rect.right - 25, row_rect.y + 3, 22, 24)
+            ren_rect = pygame.Rect(del_rect.left - 25, row_rect.y + 3, 22, 24)
+            
+            # Logica UI Delete confirm
+            del_col = cfg.BTN_NEUTRAL
+            del_txt = "x"
+            if self.pending_delete_id == sid:
+                del_col = cfg.BTN_DANGER
+                del_txt = "?"
+            
+            pygame.draw.rect(self.screen, cfg.BTN_NEUTRAL, ren_rect, border_radius=3)
+            ren_s = f_slot.render("r", True, cfg.WHITE)
+            self.screen.blit(ren_s, ren_s.get_rect(center=ren_rect.center))
+            
+            pygame.draw.rect(self.screen, del_col, del_rect, border_radius=3)
+            del_s = f_slot.render(del_txt, True, cfg.WHITE)
+            self.screen.blit(del_s, del_s.get_rect(center=del_rect.center))
+            
+            self.save_ui_rects["slots"][sid] = {"row": row_rect, "rename": ren_rect, "delete": del_rect}
+            
+            inner_y += 34
+            
+        # 3. Cargar
+        inner_y += 10
+        load_rect = pygame.Rect(x+padding, inner_y, w - padding*2, 35)
         self.save_ui_rects["load_btn"] = load_rect
-        self.draw_button(load_rect, "Cargar partida", cfg.BTN_RESUME, self.selected_save_id is not None)
+        self.draw_button_modern(load_rect, "CARGAR PARTIDA SELECCIONADA", cfg.BTN_SUCCESS, self.selected_save_id is not None, self.assets.get_font(12, True))
+        
+        return inner_y + 40
 
-        return load_rect.bottom
+    # --- COMPONENTES UI GENERICOS ---
 
-    def draw_configuration(self, small_font, normal_font, start_y: int):
-        x = self.panel_rect.x + 20
-        self.screen.blit(normal_font.render("Configuración Inicial", True, cfg.TEXT_TITLE), (x, start_y))
+    def draw_button_modern(self, rect, text, color, enabled, font):
+        draw_col = color if enabled else cfg.BTN_NEUTRAL
+        if enabled and rect.collidepoint(pygame.mouse.get_pos()):
+            # Hover effect: slightly brighter
+            draw_col = (min(255, draw_col.r + 20), min(255, draw_col.g + 20), min(255, draw_col.b + 20))
+        
+        pygame.draw.rect(self.screen, draw_col, rect, border_radius=5)
+        
+        txt_col = cfg.TEXT_MAIN if enabled else cfg.TEXT_DIM
+        surf = font.render(text, True, txt_col)
+        self.screen.blit(surf, surf.get_rect(center=rect.center))
 
-        for key, buttons in self.config_buttons.items():
-            self.screen.blit(small_font.render(buttons["label"], True, cfg.TEXT_NORMAL), (x, buttons["minus"].y))
-
-            minus_color = cfg.BTN_MINUS if self.config[key] > 0 else (100, 100, 100)
-            self.draw_button(buttons["minus"], "-", minus_color, self.config[key] > 0)
-
-            val = normal_font.render(str(self.config[key]), True, cfg.TEXT_TITLE)
-            self.screen.blit(val, val.get_rect(center=buttons["value"].center))
-
-            plus_color = cfg.BTN_PLUS if self.config[key] < cfg.POPULATION_LIMITS[key]["max"] else (100, 100, 100)
-            self.draw_button(buttons["plus"], "+", plus_color, self.config[key] < cfg.POPULATION_LIMITS[key]["max"])
-
-    # ----------------- RESTAURADO: barras de N días + turno IA -----------------
-
-    def draw_statistics(self, ecosystem: Ecosystem, small_font, normal_font, start_y: int):
-        x = self.panel_rect.x + 20
-        y = start_y
-
-        self.screen.blit(normal_font.render("Estadísticas", True, cfg.TEXT_TITLE), (x, y))
-        y += 36
-
-        stats = ecosystem.get_statistics()
-
-        # Población + barras
-        populations = [
-            ("Algas", stats["plants"], cfg.GREEN, 50),
-            ("Peces", stats["fish"], cfg.BLUE, 30),
-            ("Truchas", stats["trout"], cfg.BROWN, 15),
-            ("Tiburones", stats["sharks"], cfg.GRAY, 10),
-        ]
-
-        for label, count, color, max_count in populations:
-            self.screen.blit(small_font.render(f"{label} ({count})", True, cfg.TEXT_NORMAL), (x, y))
-            y += 18
-
-            progress = count / max(1, max_count)
-            bar_w = cfg.PANEL_WIDTH - 40
-            bar_h = 8
-            pygame.draw.rect(self.screen, cfg.BAR_BG, (x, y, bar_w, bar_h), border_radius=4)
-            if progress > 0:
-                pygame.draw.rect(self.screen, color, (x, y, int(bar_w * min(1.0, progress)), bar_h), border_radius=4)
-            y += 22
-
-        # ---------------- Barra de progreso del día (día/noche) ----------------
-        y += 6
-        day_text = f"Día {stats['day']} · {stats['time_of_day'].capitalize()}"
-        self.screen.blit(small_font.render(day_text, True, cfg.TEXT_NORMAL), (x, y))
-        y += 18
-
-        day_bar_w = cfg.PANEL_WIDTH - 40
-        pygame.draw.rect(self.screen, cfg.BAR_BG, (x, y, day_bar_w, 6), border_radius=3)
-        if stats.get("day_progress", 0) > 0:
-            fill = int(day_bar_w * max(0.0, min(1.0, stats["day_progress"])))
-            pygame.draw.rect(self.screen, cfg.BAR_PROGRESS, (x, y, fill, 6), border_radius=3)
-        y += 16
-
-        # ---------------- Barra de progreso de N días (por estación) ----------------
-        season = stats.get("season", "—")
-        n = max(1, getattr(cfg, "DAYS_PER_SEASON", 1))
-
-        # Día dentro de la estación (1..N) + progreso continuo dentro del día
-        day_index_in_season = ((stats["day"] - 1) % n) + 1
-        day_progress = float(stats.get("day_progress", 0.0))
-        season_progress_continuous = (((day_index_in_season - 1) + day_progress) / n)
-        season_progress_continuous = max(0.0, min(1.0, season_progress_continuous))
-
-        # color de estación si existe
-        season_color = cfg.BAR_PROGRESS
-        if hasattr(cfg, "SEASONS_CONFIG") and season in cfg.SEASONS_CONFIG:
-            season_color = cfg.SEASONS_CONFIG[season].get("color", cfg.BAR_PROGRESS)
-
-        season_label = f"Estación: {season} (Día {day_index_in_season}/{n})"
-        self.screen.blit(small_font.render(season_label, True, cfg.TEXT_TITLE), (x, y))
-        y += 18
-
-        pygame.draw.rect(self.screen, cfg.BAR_BG, (x, y, day_bar_w, 8), border_radius=4)
-        if season_progress_continuous > 0:
-            fill = int(day_bar_w * season_progress_continuous)
-            pygame.draw.rect(self.screen, season_color, (x, y, fill, 8), border_radius=4)
-        y += 20
-
-        # ---------------- Barra del turno/ciclo IA ----------------
-        y += 4
-        self.screen.blit(small_font.render("Siguiente turno IA:", True, cfg.TEXT_NORMAL), (x, y))
-        y += 18
-
-        pygame.draw.rect(self.screen, cfg.BAR_BG, (x, y, day_bar_w, 8), border_radius=4)
-        p = max(0.0, min(1.0, float(self.turn_progress)))
-        if p > 0:
-            fill = int(day_bar_w * p)
-            pygame.draw.rect(self.screen, cfg.BAR_PROGRESS, (x, y, fill, 8), border_radius=4)
-        y += 18
-
-    def draw_particles(self):
-        for p in self.particles:
-            p.draw(self.screen, self.effects_font)
+    def draw_mini_btn(self, rect, text, enabled):
+        col = cfg.BTN_NEUTRAL if enabled else cfg.UI_BG
+        pygame.draw.rect(self.screen, col, rect, border_radius=4)
+        f = self.assets.get_font(16, True)
+        c = cfg.TEXT_MAIN if enabled else cfg.TEXT_DIM
+        s = f.render(text, True, c)
+        self.screen.blit(s, s.get_rect(center=rect.center))
 
     def draw_pause_overlay(self):
-        if not self.simulation_paused:
-            return
         overlay = pygame.Surface((cfg.GAME_AREA_WIDTH, cfg.SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 128))
+        overlay.fill((0, 0, 0, 100))
         self.screen.blit(overlay, (0, 0))
-        font = self.assets.get_font(72, bold=True)
+        
+        # Etiqueta moderna de pausa
+        font = self.assets.get_font(40, True)
         surf = font.render("PAUSA", True, cfg.WHITE)
-        self.screen.blit(surf, surf.get_rect(center=(cfg.GAME_AREA_WIDTH // 2, cfg.SCREEN_HEIGHT // 2)))
-
-    def render(self, ecosystem: Ecosystem):
-        self.screen.fill(cfg.BLACK)
-        self.draw_ecosystem(ecosystem)
-        self.draw_particles()
-        self.draw_active_save_label()
-        self.draw_panel(ecosystem)
-        self.draw_pause_overlay()
-        pygame.display.flip()
-        self.clock.tick(cfg.FPS)
-
-    # ----------------- helpers controlador -----------------
-
-    def set_turn_progress(self, progress: float):
-        self.turn_progress = max(0.0, min(1.0, progress))
-
-    def set_simulation_state(self, running: bool, paused: bool):
-        self.simulation_running = running
-        self.simulation_paused = paused
-
-    def get_configuration(self) -> Dict[str, int]:
-        return self.config.copy()
+        bg = pygame.Rect(0, 0, surf.get_width() + 60, surf.get_height() + 40)
+        bg.center = (cfg.GAME_AREA_WIDTH // 2, cfg.SCREEN_HEIGHT // 2)
+        
+        pygame.draw.rect(self.screen, cfg.UI_BG, bg, border_radius=15)
+        pygame.draw.rect(self.screen, cfg.BTN_WARNING, bg, 2, border_radius=15)
+        self.screen.blit(surf, surf.get_rect(center=bg.center))
 
     def cleanup(self):
         pygame.mixer.quit()
         pygame.quit()
+    
+    # Helpers que el controlador espera (API Legacy)
+    def set_turn_progress(self, progress: float): self.turn_progress = progress
+    def set_simulation_state(self, running: bool, paused: bool): self.simulation_running, self.simulation_paused = running, paused
+    def get_configuration(self) -> Dict[str, int]: return self.config.copy()
